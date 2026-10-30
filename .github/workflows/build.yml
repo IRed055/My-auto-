@@ -15,619 +15,619 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Create Project Structure on First Run
+      - name: Generate Clean Android Project Files
         run: |
-          if [ ! -d "app" ]; then
-          mkdir -p app/src/main/java/com/smartclicker/app
-          mkdir -p app/src/main/res/xml
-          mkdir -p app/src/main/res/values
+          python3 - << 'PYEOF'
+          import os, textwrap
 
-          cat << 'EOF' > settings.gradle
-          rootProject.name = "SmartClicker"
-          include ':app'
-          EOF
+          def write_file(path, content):
+              os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(textwrap.dedent(content).lstrip())
 
-          cat << 'EOF' > build.gradle
-          plugins {
-              id 'com.android.application' version '8.2.2' apply false
-          }
-          EOF
+          if not os.path.exists("app/src/main/AndroidManifest.xml"):
+              write_file("settings.gradle", """
+                  rootProject.name = "SmartClicker"
+                  include ':app'
+              """)
 
-          cat << 'EOF' > app/build.gradle
-          plugins {
-              id 'com.android.application'
-          }
-          android {
-              namespace 'com.smartclicker.app'
-              compileSdk 34
-              defaultConfig {
-                  applicationId "com.smartclicker.app"
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_1_8
-                  targetCompatibility JavaVersion.VERSION_1_8
-              }
-          }
-          dependencies {
-          }
-          EOF
-
-          cat << 'EOF' > app/src/main/res/values/strings.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">النقر الذكي</string>
-              <string name="acc_desc">خدمة النقر الذكي لتنفيذ اللمسات المتعددة والمتزامنة داخل الألعاب</string>
-          </resources>
-          EOF
-
-          cat << 'EOF' > app/src/main/res/xml/accessibility_config.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-              android:accessibilityEventTypes="typeWindowStateChanged|typeNotificationStateChanged"
-              android:accessibilityFeedbackType="feedbackGeneric"
-              android:accessibilityFlags="flagDefault"
-              android:canPerformGestures="true"
-              android:canRetrieveWindowContent="true"
-              android:description="@string/acc_desc" />
-          EOF
-
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-              <application
-                  android:label="@string/app_name"
-                  android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-                  <service
-                      android:name=".ClickerService"
-                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-                      android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.accessibilityservice.AccessibilityService" />
-                      </intent-filter>
-                      <meta-data
-                          android:name="android.accessibilityservice"
-                          android:resource="@xml/accessibility_config" />
-                  </service>
-              </application>
-          </manifest>
-          EOF
-
-          cat << 'EOF' > app/src/main/java/com/smartclicker/app/MainActivity.java
-          package com.smartclicker.app;
-
-          import android.app.Activity;
-          import android.content.Intent;
-          import android.content.SharedPreferences;
-          import android.graphics.Color;
-          import android.os.Bundle;
-          import android.provider.Settings;
-          import android.text.InputType;
-          import android.view.Gravity;
-          import android.widget.Button;
-          import android.widget.EditText;
-          import android.widget.LinearLayout;
-          import android.widget.ScrollView;
-          import android.widget.TextView;
-          import android.widget.Toast;
-
-          public class MainActivity extends Activity {
-              private EditText etDelay, etDuration, etRandomPx, etRandomMs, etSize, etAlpha;
-              private SharedPreferences prefs;
-
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-
-                  ScrollView scroll = new ScrollView(this);
-                  LinearLayout layout = new LinearLayout(this);
-                  layout.setOrientation(LinearLayout.VERTICAL);
-                  layout.setPadding(40, 40, 40, 40);
-                  layout.setBackgroundColor(Color.parseColor("#F5F7FA"));
-
-                  TextView title = new TextView(this);
-                  title.setText("النقر الذكي - الإعدادات الأساسية");
-                  title.setTextSize(20);
-                  title.setTextColor(Color.parseColor("#1A202C"));
-                  title.setGravity(Gravity.CENTER);
-                  title.setPadding(0, 0, 0, 30);
-                  layout.addView(title);
-
-                  Button btnAcc = createButton("1. تفعيل خدمة إمكانية الوصول (إلزامي)", "#3182CE");
-                  btnAcc.setOnClickListener(v -> {
-                      startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-                      Toast.makeText(this, "ابحث عن (النقر الذكي) وقم بتفعيله", Toast.LENGTH_LONG).show();
-                  });
-                  layout.addView(btnAcc);
-
-                  etDelay = addInputField(layout, "وقت الانتظار الافتراضي قبل اللمسة (مللي ثانية):", String.valueOf(prefs.getInt("def_delay", 300)));
-                  etDuration = addInputField(layout, "مدة اللمسة الافتراضية (مللي ثانية):", String.valueOf(prefs.getInt("def_duration", 60)));
-                  etRandomPx = addInputField(layout, "نطاق العشوائية في المكان لمنع الحظر (بكسل):", String.valueOf(prefs.getInt("def_rand_px", 5)));
-                  etRandomMs = addInputField(layout, "نطاق العشوائية في الوقت لمنع الحظر (مللي ثانية):", String.valueOf(prefs.getInt("def_rand_ms", 25)));
-                  etSize = addInputField(layout, "حجم دائرة اللمس (من 60 إلى 200):", String.valueOf(prefs.getInt("def_size", 110)));
-                  etAlpha = addInputField(layout, "شفافية الدوائر واللوحة (من 20 إلى 100%):", String.valueOf(prefs.getInt("def_alpha", 85)));
-
-                  Button btnSave = createButton("2. حفظ الإعدادات الافتراضية", "#38A169");
-                  btnSave.setOnClickListener(v -> savePreferences());
-                  layout.addView(btnSave);
-
-                  Button btnStart = createButton("3. إظهار شريط التحكم العائم", "#805AD5");
-                  btnStart.setOnClickListener(v -> {
-                      savePreferences();
-                      if (ClickerService.instance != null) {
-                          ClickerService.instance.showControlBar();
-                          Toast.makeText(this, "تم إظهار الشريط العائم", Toast.LENGTH_SHORT).show();
-                      } else {
-                          Toast.makeText(this, "يرجى تفعيل خدمة إمكانية الوصول أولاً من الزر الأول!", Toast.LENGTH_LONG).show();
-                      }
-                  });
-                  layout.addView(btnStart);
-
-                  scroll.addView(layout);
-                  setContentView(scroll);
-              }
-
-              private void savePreferences() {
-                  try {
-                      prefs.edit()
-                          .putInt("def_delay", Integer.parseInt(etDelay.getText().toString()))
-                          .putInt("def_duration", Integer.parseInt(etDuration.getText().toString()))
-                          .putInt("def_rand_px", Integer.parseInt(etRandomPx.getText().toString()))
-                          .putInt("def_rand_ms", Integer.parseInt(etRandomMs.getText().toString()))
-                          .putInt("def_size", Math.max(60, Math.min(250, Integer.parseInt(etSize.getText().toString()))))
-                          .putInt("def_alpha", Math.max(20, Math.min(100, Integer.parseInt(etAlpha.getText().toString()))))
-                          .apply();
-                      Toast.makeText(this, "تم حفظ الإعدادات بنجاح", Toast.LENGTH_SHORT).show();
-                  } catch (Exception e) {
-                      Toast.makeText(this, "تأكد من إدخال أرقام صحيحة", Toast.LENGTH_SHORT).show();
+              write_file("build.gradle", """
+                  plugins {
+                      id 'com.android.application' version '8.2.2' apply false
                   }
-              }
+              """)
 
-              private EditText addInputField(LinearLayout parent, String labelText, String defaultVal) {
-                  TextView tv = new TextView(this);
-                  tv.setText(labelText);
-                  tv.setTextColor(Color.parseColor("#2D3748"));
-                  tv.setPadding(0, 20, 0, 5);
-                  parent.addView(tv);
-
-                  EditText et = new EditText(this);
-                  et.setInputType(InputType.TYPE_CLASS_NUMBER);
-                  et.setText(defaultVal);
-                  et.setBackgroundColor(Color.WHITE);
-                  et.setPadding(20, 15, 20, 15);
-                  parent.addView(et);
-                  return et;
-              }
-
-              private Button createButton(String text, String colorHex) {
-                  Button btn = new Button(this);
-                  btn.setText(text);
-                  btn.setBackgroundColor(Color.parseColor(colorHex));
-                  btn.setTextColor(Color.WHITE);
-                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                  lp.setMargins(0, 25, 0, 10);
-                  btn.setLayoutParams(lp);
-                  return btn;
-              }
-          }
-          EOF
-
-          cat << 'EOF' > app/src/main/java/com/smartclicker/app/ClickerService.java
-          package com.smartclicker.app;
-
-          import android.accessibilityservice.AccessibilityService;
-          import android.accessibilityservice.GestureDescription;
-          import android.content.SharedPreferences;
-          import android.graphics.Color;
-          import android.graphics.Path;
-          import android.graphics.PixelFormat;
-          import android.graphics.drawable.GradientDrawable;
-          import android.os.Handler;
-          import android.os.Looper;
-          import android.text.InputType;
-          import android.view.Gravity;
-          import android.view.MotionEvent;
-          import android.view.View;
-          import android.view.WindowManager;
-          import android.view.accessibility.AccessibilityEvent;
-          import android.widget.Button;
-          import android.widget.CheckBox;
-          import android.widget.EditText;
-          import android.widget.LinearLayout;
-          import android.widget.TextView;
-          import android.widget.Toast;
-
-          import java.util.ArrayList;
-          import java.util.Collections;
-          import java.util.Comparator;
-          import java.util.List;
-          import java.util.Random;
-
-          public class ClickerService extends AccessibilityService {
-              public static ClickerService instance;
-              private WindowManager wm;
-              private LinearLayout controlBar;
-              private View editDialogView;
-              private final List<TouchPoint> points = new ArrayList<>();
-              private boolean isRunning = false;
-              private boolean isStealth = false;
-              private final Handler handler = new Handler(Looper.getMainLooper());
-              private final Random random = new Random();
-              private TextView btnPlay;
-
-              private static class TouchPoint {
-                  int stepNumber;
-                  int delayMs;
-                  int durationMs;
-                  boolean useRandom;
-                  TextView view;
-                  WindowManager.LayoutParams params;
-              }
-
-              @Override
-              protected void onServiceConnected() {
-                  super.onServiceConnected();
-                  instance = this;
-                  wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-                  showControlBar();
-              }
-
-              public void showControlBar() {
-                  if (controlBar != null) return;
-                  SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                  float alpha = prefs.getInt("def_alpha", 85) / 100f;
-
-                  controlBar = new LinearLayout(this);
-                  controlBar.setOrientation(LinearLayout.VERTICAL);
-                  GradientDrawable bg = new GradientDrawable();
-                  bg.setColor(Color.parseColor("#DD1A202C"));
-                  bg.setCornerRadius(30f);
-                  controlBar.setBackground(bg);
-                  controlBar.setPadding(12, 16, 12, 16);
-                  controlBar.setAlpha(alpha);
-
-                  btnPlay = createBarButton("▶", "#48BB78");
-                  btnPlay.setOnClickListener(v -> togglePlay());
-                  controlBar.addView(btnPlay);
-
-                  TextView btnAdd = createBarButton("+", "#4299E1");
-                  btnAdd.setOnClickListener(v -> {
-                      if (!isRunning) addTouchPoint();
-                  });
-                  controlBar.addView(btnAdd);
-
-                  TextView btnRemove = createBarButton("-", "#ECC94B");
-                  btnRemove.setOnClickListener(v -> {
-                      if (!isRunning && !points.isEmpty()) {
-                          TouchPoint last = points.remove(points.size() - 1);
-                          wm.removeView(last.view);
+              write_file("app/build.gradle", """
+                  plugins {
+                      id 'com.android.application'
+                  }
+                  android {
+                      namespace 'com.smartclicker.app'
+                      compileSdk 34
+                      defaultConfig {
+                          applicationId "com.smartclicker.app"
+                          minSdk 24
+                          targetSdk 34
+                          versionCode 1
+                          versionName "1.0"
                       }
-                  });
-                  controlBar.addView(btnRemove);
-
-                  TextView btnEye = createBarButton("👁", "#9F7AEA");
-                  btnEye.setOnClickListener(v -> toggleStealth());
-                  controlBar.addView(btnEye);
-
-                  TextView btnClose = createBarButton("✖", "#F56565");
-                  btnClose.setOnClickListener(v -> closeAll());
-                  controlBar.addView(btnClose);
-
-                  final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                      PixelFormat.TRANSLUCENT);
-                  params.gravity = Gravity.TOP | Gravity.START;
-                  params.x = 20;
-                  params.y = 250;
-
-                  controlBar.setOnTouchListener(new View.OnTouchListener() {
-                      int initX, initY;
-                      float touchX, touchY;
-                      @Override
-                      public boolean onTouch(View v, MotionEvent e) {
-                          if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                              initX = params.x; initY = params.y;
-                              touchX = e.getRawX(); touchY = e.getRawY();
-                              return true;
-                          } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                              params.x = initX + (int) (e.getRawX() - touchX);
-                              params.y = initY + (int) (e.getRawY() - touchY);
-                              wm.updateViewLayout(controlBar, params);
-                              return true;
-                          }
-                          return false;
+                      compileOptions {
+                          sourceCompatibility JavaVersion.VERSION_1_8
+                          targetCompatibility JavaVersion.VERSION_1_8
                       }
-                  });
+                  }
+                  dependencies {
+                  }
+              """)
 
-                  wm.addView(controlBar, params);
-              }
+              write_file("app/src/main/res/values/strings.xml", """
+                  <?xml version="1.0" encoding="utf-8"?>
+                  <resources>
+                      <string name="app_name">النقر الذكي</string>
+                      <string name="acc_desc">خدمة النقر الذكي لتنفيذ اللمسات المتعددة والمتزامنة داخل الألعاب</string>
+                  </resources>
+              """)
 
-              private TextView createBarButton(String symbol, String colorHex) {
-                  TextView tv = new TextView(this);
-                  tv.setText(symbol);
-                  tv.setTextSize(18);
-                  tv.setTextColor(Color.WHITE);
-                  tv.setGravity(Gravity.CENTER);
-                  GradientDrawable shape = new GradientDrawable();
-                  shape.setShape(GradientDrawable.OVAL);
-                  shape.setColor(Color.parseColor(colorHex));
-                  tv.setBackground(shape);
-                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(95, 95);
-                  lp.setMargins(0, 8, 0, 8);
-                  tv.setLayoutParams(lp);
-                  return tv;
-              }
+              write_file("app/src/main/res/xml/accessibility_config.xml", """
+                  <?xml version="1.0" encoding="utf-8"?>
+                  <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+                      android:accessibilityEventTypes="typeWindowStateChanged|typeNotificationStateChanged"
+                      android:accessibilityFeedbackType="feedbackGeneric"
+                      android:accessibilityFlags="flagDefault"
+                      android:canPerformGestures="true"
+                      android:canRetrieveWindowContent="true"
+                      android:description="@string/acc_desc" />
+              """)
 
-              private void addTouchPoint() {
-                  SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                  int size = prefs.getInt("def_size", 110);
-                  float alpha = prefs.getInt("def_alpha", 85) / 100f;
+              write_file("app/src/main/AndroidManifest.xml", """
+                  <?xml version="1.0" encoding="utf-8"?>
+                  <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                      <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+                      <application
+                          android:label="@string/app_name"
+                          android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+                          <activity
+                              android:name=".MainActivity"
+                              android:exported="true">
+                              <intent-filter>
+                                  <action android:name="android.intent.action.MAIN" />
+                                  <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                          </activity>
+                          <service
+                              android:name=".ClickerService"
+                              android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                              android:exported="true">
+                              <intent-filter>
+                                  <action android:name="android.accessibilityservice.AccessibilityService" />
+                              </intent-filter>
+                              <meta-data
+                                  android:name="android.accessibilityservice"
+                                  android:resource="@xml/accessibility_config" />
+                          </service>
+                      </application>
+                  </manifest>
+              """)
 
-                  final TouchPoint tp = new TouchPoint();
-                  tp.stepNumber = points.size() + 1;
-                  tp.delayMs = prefs.getInt("def_delay", 300);
-                  tp.durationMs = prefs.getInt("def_duration", 60);
-                  tp.useRandom = true;
+              write_file("app/src/main/java/com/smartclicker/app/MainActivity.java", """
+                  package com.smartclicker.app;
 
-                  TextView tv = new TextView(this);
-                  tv.setText(String.valueOf(tp.stepNumber));
-                  tv.setTextColor(Color.WHITE);
-                  tv.setTextSize(16);
-                  tv.setGravity(Gravity.CENTER);
-                  tv.setAlpha(alpha);
+                  import android.app.Activity;
+                  import android.content.Intent;
+                  import android.content.SharedPreferences;
+                  import android.graphics.Color;
+                  import android.os.Bundle;
+                  import android.provider.Settings;
+                  import android.text.InputType;
+                  import android.view.Gravity;
+                  import android.widget.Button;
+                  import android.widget.EditText;
+                  import android.widget.LinearLayout;
+                  import android.widget.ScrollView;
+                  import android.widget.TextView;
+                  import android.widget.Toast;
 
-                  GradientDrawable circle = new GradientDrawable();
-                  circle.setShape(GradientDrawable.OVAL);
-                  circle.setColor(Color.parseColor("#883182CE"));
-                  circle.setStroke(4, Color.WHITE);
-                  tv.setBackground(circle);
+                  public class MainActivity extends Activity {
+                      private EditText etDelay, etDuration, etRandomPx, etRandomMs, etSize, etAlpha;
+                      private SharedPreferences prefs;
 
-                  final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                      size, size,
-                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                      PixelFormat.TRANSLUCENT);
-                  params.gravity = Gravity.TOP | Gravity.START;
-                  params.x = 300 + (points.size() * 40);
-                  params.y = 400 + (points.size() * 40);
-
-                  tp.view = tv;
-                  tp.params = params;
-
-                  tv.setOnTouchListener(new View.OnTouchListener() {
-                      int initX, initY;
-                      float touchX, touchY;
-                      long downTime;
                       @Override
-                      public boolean onTouch(View v, MotionEvent e) {
-                          if (isRunning) return false;
-                          if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                              initX = params.x; initY = params.y;
-                              touchX = e.getRawX(); touchY = e.getRawY();
-                              downTime = System.currentTimeMillis();
-                              return true;
-                          } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                              params.x = initX + (int) (e.getRawX() - touchX);
-                              params.y = initY + (int) (e.getRawY() - touchY);
-                              wm.updateViewLayout(tv, params);
-                              return true;
-                          } else if (e.getAction() == MotionEvent.ACTION_UP) {
-                              if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15) {
-                                  showEditPointDialog(tp);
+                      protected void onCreate(Bundle savedInstanceState) {
+                          super.onCreate(savedInstanceState);
+                          prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+
+                          ScrollView scroll = new ScrollView(this);
+                          LinearLayout layout = new LinearLayout(this);
+                          layout.setOrientation(LinearLayout.VERTICAL);
+                          layout.setPadding(40, 40, 40, 40);
+                          layout.setBackgroundColor(Color.parseColor("#F5F7FA"));
+
+                          TextView title = new TextView(this);
+                          title.setText("النقر الذكي - الإعدادات الأساسية");
+                          title.setTextSize(20);
+                          title.setTextColor(Color.parseColor("#1A202C"));
+                          title.setGravity(Gravity.CENTER);
+                          title.setPadding(0, 0, 0, 30);
+                          layout.addView(title);
+
+                          Button btnAcc = createButton("1. تفعيل خدمة إمكانية الوصول (إلزامي)", "#3182CE");
+                          btnAcc.setOnClickListener(v -> {
+                              startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                              Toast.makeText(this, "ابحث عن (النقر الذكي) وقم بتفعيله", Toast.LENGTH_LONG).show();
+                          });
+                          layout.addView(btnAcc);
+
+                          etDelay = addInputField(layout, "وقت الانتظار الافتراضي قبل اللمسة (مللي ثانية):", String.valueOf(prefs.getInt("def_delay", 300)));
+                          etDuration = addInputField(layout, "مدة اللمسة الافتراضية (مللي ثانية):", String.valueOf(prefs.getInt("def_duration", 60)));
+                          etRandomPx = addInputField(layout, "نطاق العشوائية في المكان لمنع الحظر (بكسل):", String.valueOf(prefs.getInt("def_rand_px", 5)));
+                          etRandomMs = addInputField(layout, "نطاق العشوائية في الوقت لمنع الحظر (مللي ثانية):", String.valueOf(prefs.getInt("def_rand_ms", 25)));
+                          etSize = addInputField(layout, "حجم دائرة اللمس (من 60 إلى 200):", String.valueOf(prefs.getInt("def_size", 110)));
+                          etAlpha = addInputField(layout, "شفافية الدوائر واللوحة (من 20 إلى 100%):", String.valueOf(prefs.getInt("def_alpha", 85)));
+
+                          Button btnSave = createButton("2. حفظ الإعدادات الافتراضية", "#38A169");
+                          btnSave.setOnClickListener(v -> savePreferences());
+                          layout.addView(btnSave);
+
+                          Button btnStart = createButton("3. إظهار شريط التحكم العائم", "#805AD5");
+                          btnStart.setOnClickListener(v -> {
+                              savePreferences();
+                              if (ClickerService.instance != null) {
+                                  ClickerService.instance.showControlBar();
+                                  Toast.makeText(this, "تم إظهار الشريط العائم", Toast.LENGTH_SHORT).show();
+                              } else {
+                                  Toast.makeText(this, "يرجى تفعيل خدمة إمكانية الوصول أولاً من الزر الأول!", Toast.LENGTH_LONG).show();
                               }
-                              return true;
-                          }
-                          return false;
+                          });
+                          layout.addView(btnStart);
+
+                          scroll.addView(layout);
+                          setContentView(scroll);
                       }
-                  });
 
-                  points.add(tp);
-                  wm.addView(tv, params);
-              }
-
-              private void showEditPointDialog(final TouchPoint tp) {
-                  if (editDialogView != null) wm.removeView(editDialogView);
-
-                  LinearLayout box = new LinearLayout(this);
-                  box.setOrientation(LinearLayout.VERTICAL);
-                  box.setPadding(35, 35, 35, 35);
-                  GradientDrawable bg = new GradientDrawable();
-                  bg.setColor(Color.parseColor("#F7FAFC"));
-                  bg.setCornerRadius(25f);
-                  bg.setStroke(4, Color.parseColor("#3182CE"));
-                  box.setBackground(bg);
-
-                  TextView title = new TextView(this);
-                  title.setText("تعديل اللمسة (نفس الرقم = نقر متزامن)");
-                  title.setTextColor(Color.BLACK);
-                  title.setTextSize(15);
-                  box.addView(title);
-
-                  final EditText etStep = createDialogInput(box, "رقم الخطوة:", String.valueOf(tp.stepNumber));
-                  final EditText etDelay = createDialogInput(box, "الانتظار قبلها (مللي ثانية):", String.valueOf(tp.delayMs));
-                  final EditText etDur = createDialogInput(box, "مدة اللمس/الضغط المطول (مللي ثانية):", String.valueOf(tp.durationMs));
-
-                  final CheckBox cbRand = new CheckBox(this);
-                  cbRand.setText("تفعيل العشوائية الذكية لهذه اللمسة");
-                  cbRand.setTextColor(Color.BLACK);
-                  cbRand.setChecked(tp.useRandom);
-                  box.addView(cbRand);
-
-                  Button btnSave = new Button(this);
-                  btnSave.setText("حفظ التعديل");
-                  btnSave.setBackgroundColor(Color.parseColor("#38A169"));
-                  btnSave.setTextColor(Color.WHITE);
-                  btnSave.setOnClickListener(v -> {
-                      try {
-                          tp.stepNumber = Integer.parseInt(etStep.getText().toString());
-                          tp.delayMs = Integer.parseInt(etDelay.getText().toString());
-                          tp.durationMs = Math.max(20, Integer.parseInt(etDur.getText().toString()));
-                          tp.useRandom = cbRand.isChecked();
-                          tp.view.setText(String.valueOf(tp.stepNumber));
-                      } catch (Exception ignored) {}
-                      wm.removeView(editDialogView);
-                      editDialogView = null;
-                  });
-                  box.addView(btnSave);
-
-                  WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_DIM_BEHIND,
-                      PixelFormat.TRANSLUCENT);
-                  lp.dimAmount = 0.4f;
-                  lp.gravity = Gravity.CENTER;
-
-                  editDialogView = box;
-                  wm.addView(editDialogView, lp);
-              }
-
-              private EditText createDialogInput(LinearLayout parent, String label, String val) {
-                  TextView tv = new TextView(this);
-                  tv.setText(label);
-                  tv.setTextColor(Color.DKGRAY);
-                  parent.addView(tv);
-                  EditText et = new EditText(this);
-                  et.setInputType(InputType.TYPE_CLASS_NUMBER);
-                  et.setText(val);
-                  et.setTextColor(Color.BLACK);
-                  parent.addView(et);
-                  return et;
-              }
-
-              private void toggleStealth() {
-                  isStealth = !isStealth;
-                  for (TouchPoint tp : points) {
-                      tp.view.setVisibility(isStealth ? View.INVISIBLE : View.VISIBLE);
-                  }
-                  controlBar.setAlpha(isStealth ? 0.25f : 0.85f);
-              }
-
-              private void togglePlay() {
-                  if (points.isEmpty()) {
-                      Toast.makeText(this, "أضف دائرة لمس أولاً من علامة (+)", Toast.LENGTH_SHORT).show();
-                      return;
-                  }
-                  isRunning = !isRunning;
-                  btnPlay.setText(isRunning ? "⏸" : "▶");
-                  setPointsTouchable(!isRunning);
-                  if (isRunning) {
-                      runStepGroup(0);
-                  } else {
-                      handler.removeCallbacksAndMessages(null);
-                  }
-              }
-
-              private void setPointsTouchable(boolean touchable) {
-                  for (TouchPoint tp : points) {
-                      if (touchable) {
-                          tp.params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-                      } else {
-                          tp.params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                      private void savePreferences() {
+                          try {
+                              prefs.edit()
+                                  .putInt("def_delay", Integer.parseInt(etDelay.getText().toString()))
+                                  .putInt("def_duration", Integer.parseInt(etDuration.getText().toString()))
+                                  .putInt("def_rand_px", Integer.parseInt(etRandomPx.getText().toString()))
+                                  .putInt("def_rand_ms", Integer.parseInt(etRandomMs.getText().toString()))
+                                  .putInt("def_size", Math.max(60, Math.min(250, Integer.parseInt(etSize.getText().toString()))))
+                                  .putInt("def_alpha", Math.max(20, Math.min(100, Integer.parseInt(etAlpha.getText().toString()))))
+                                  .apply();
+                              Toast.makeText(this, "تم حفظ الإعدادات بنجاح", Toast.LENGTH_SHORT).show();
+                          } catch (Exception e) {
+                              Toast.makeText(this, "تأكد من إدخال أرقام صحيحة", Toast.LENGTH_SHORT).show();
+                          }
                       }
-                      wm.updateViewLayout(tp.view, tp.params);
-                  }
-              }
 
-              private void runStepGroup(final int groupIndex) {
-                  if (!isRunning || points.isEmpty()) return;
+                      private EditText addInputField(LinearLayout parent, String labelText, String defaultVal) {
+                          TextView tv = new TextView(this);
+                          tv.setText(labelText);
+                          tv.setTextColor(Color.parseColor("#2D3748"));
+                          tv.setPadding(0, 20, 0, 5);
+                          parent.addView(tv);
 
-                  List<Integer> uniqueSteps = new ArrayList<>();
-                  for (TouchPoint tp : points) {
-                      if (!uniqueSteps.contains(tp.stepNumber)) uniqueSteps.add(tp.stepNumber);
-                  }
-                  Collections.sort(uniqueSteps);
-
-                  final int currentStepNum = uniqueSteps.get(groupIndex % uniqueSteps.size());
-                  final List<TouchPoint> group = new ArrayList<>();
-                  for (TouchPoint tp : points) {
-                      if (tp.stepNumber == currentStepNum) group.add(tp);
-                  }
-
-                  SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                  final int randPx = prefs.getInt("def_rand_px", 5);
-                  final int randMs = prefs.getInt("def_rand_ms", 25);
-
-                  int baseDelay = group.get(0).delayMs;
-                  if (group.get(0).useRandom && randMs > 0) {
-                      baseDelay += random.nextInt(randMs * 2 + 1) - randMs;
-                  }
-                  baseDelay = Math.max(20, baseDelay);
-
-                  handler.postDelayed(() -> {
-                      if (!isRunning) return;
-                      GestureDescription.Builder builder = new GestureDescription.Builder();
-                      int count = 0;
-                      for (TouchPoint tp : group) {
-                          if (count >= 10) break;
-                          int[] loc = new int[2];
-                          tp.view.getLocationOnScreen(loc);
-                          float cx = loc[0] + (tp.view.getWidth() / 2f);
-                          float cy = loc[1] + (tp.view.getHeight() / 2f);
-
-                          if (tp.useRandom && randPx > 0) {
-                              cx += random.nextInt(randPx * 2 + 1) - randPx;
-                              cy += random.nextInt(randPx * 2 + 1) - randPx;
-                          }
-                          cx = Math.max(1f, cx);
-                          cy = Math.max(1f, cy);
-
-                          Path path = new Path();
-                          path.moveTo(cx, cy);
-                          builder.addStroke(new GestureDescription.StrokeDescription(path, 0, tp.durationMs));
-                          count++;
+                          EditText et = new EditText(this);
+                          et.setInputType(InputType.TYPE_CLASS_NUMBER);
+                          et.setText(defaultVal);
+                          et.setBackgroundColor(Color.WHITE);
+                          et.setPadding(20, 15, 20, 15);
+                          parent.addView(et);
+                          return et;
                       }
-                      dispatchGesture(builder.build(), new GestureResultCallback() {
-                          @Override
-                          public void onCompleted(GestureDescription gestureDescription) {
-                              runStepGroup(groupIndex + 1);
+
+                      private Button createButton(String text, String colorHex) {
+                          Button btn = new Button(this);
+                          btn.setText(text);
+                          btn.setBackgroundColor(Color.parseColor(colorHex));
+                          btn.setTextColor(Color.WHITE);
+                          LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                              LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                          lp.setMargins(0, 25, 0, 10);
+                          btn.setLayoutParams(lp);
+                          return btn;
+                      }
+                  }
+              """)
+
+              write_file("app/src/main/java/com/smartclicker/app/ClickerService.java", """
+                  package com.smartclicker.app;
+
+                  import android.accessibilityservice.AccessibilityService;
+                  import android.accessibilityservice.GestureDescription;
+                  import android.content.SharedPreferences;
+                  import android.graphics.Color;
+                  import android.graphics.Path;
+                  import android.graphics.PixelFormat;
+                  import android.graphics.drawable.GradientDrawable;
+                  import android.os.Handler;
+                  import android.os.Looper;
+                  import android.text.InputType;
+                  import android.view.Gravity;
+                  import android.view.MotionEvent;
+                  import android.view.View;
+                  import android.view.WindowManager;
+                  import android.view.accessibility.AccessibilityEvent;
+                  import android.widget.Button;
+                  import android.widget.CheckBox;
+                  import android.widget.EditText;
+                  import android.widget.LinearLayout;
+                  import android.widget.TextView;
+                  import android.widget.Toast;
+
+                  import java.util.ArrayList;
+                  import java.util.Collections;
+                  import java.util.List;
+                  import java.util.Random;
+
+                  public class ClickerService extends AccessibilityService {
+                      public static ClickerService instance;
+                      private WindowManager wm;
+                      private LinearLayout controlBar;
+                      private View editDialogView;
+                      private final List<TouchPoint> points = new ArrayList<>();
+                      private boolean isRunning = false;
+                      private boolean isStealth = false;
+                      private final Handler handler = new Handler(Looper.getMainLooper());
+                      private final Random random = new Random();
+                      private TextView btnPlay;
+
+                      private static class TouchPoint {
+                          int stepNumber;
+                          int delayMs;
+                          int durationMs;
+                          boolean useRandom;
+                          TextView view;
+                          WindowManager.LayoutParams params;
+                      }
+
+                      @Override
+                      protected void onServiceConnected() {
+                          super.onServiceConnected();
+                          instance = this;
+                          wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+                          showControlBar();
+                      }
+
+                      public void showControlBar() {
+                          if (controlBar != null) return;
+                          SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                          float alpha = prefs.getInt("def_alpha", 85) / 100f;
+
+                          controlBar = new LinearLayout(this);
+                          controlBar.setOrientation(LinearLayout.VERTICAL);
+                          GradientDrawable bg = new GradientDrawable();
+                          bg.setColor(Color.parseColor("#DD1A202C"));
+                          bg.setCornerRadius(30f);
+                          controlBar.setBackground(bg);
+                          controlBar.setPadding(12, 16, 12, 16);
+                          controlBar.setAlpha(alpha);
+
+                          btnPlay = createBarButton("▶", "#48BB78");
+                          btnPlay.setOnClickListener(v -> togglePlay());
+                          controlBar.addView(btnPlay);
+
+                          TextView btnAdd = createBarButton("+", "#4299E1");
+                          btnAdd.setOnClickListener(v -> {
+                              if (!isRunning) addTouchPoint();
+                          });
+                          controlBar.addView(btnAdd);
+
+                          TextView btnRemove = createBarButton("-", "#ECC94B");
+                          btnRemove.setOnClickListener(v -> {
+                              if (!isRunning && !points.isEmpty()) {
+                                  TouchPoint last = points.remove(points.size() - 1);
+                                  wm.removeView(last.view);
+                              }
+                          });
+                          controlBar.addView(btnRemove);
+
+                          TextView btnEye = createBarButton("👁", "#9F7AEA");
+                          btnEye.setOnClickListener(v -> toggleStealth());
+                          controlBar.addView(btnEye);
+
+                          TextView btnClose = createBarButton("✖", "#F56565");
+                          btnClose.setOnClickListener(v -> closeAll());
+                          controlBar.addView(btnClose);
+
+                          final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                              WindowManager.LayoutParams.WRAP_CONTENT,
+                              WindowManager.LayoutParams.WRAP_CONTENT,
+                              WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                              WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                              PixelFormat.TRANSLUCENT);
+                          params.gravity = Gravity.TOP | Gravity.START;
+                          params.x = 20;
+                          params.y = 250;
+
+                          controlBar.setOnTouchListener(new View.OnTouchListener() {
+                              int initX, initY;
+                              float touchX, touchY;
+                              @Override
+                              public boolean onTouch(View v, MotionEvent e) {
+                                  if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                      initX = params.x; initY = params.y;
+                                      touchX = e.getRawX(); touchY = e.getRawY();
+                                      return true;
+                                  } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                      params.x = initX + (int) (e.getRawX() - touchX);
+                                      params.y = initY + (int) (e.getRawY() - touchY);
+                                      wm.updateViewLayout(controlBar, params);
+                                      return true;
+                                  }
+                                  return false;
+                              }
+                          });
+
+                          wm.addView(controlBar, params);
+                      }
+
+                      private TextView createBarButton(String symbol, String colorHex) {
+                          TextView tv = new TextView(this);
+                          tv.setText(symbol);
+                          tv.setTextSize(18);
+                          tv.setTextColor(Color.WHITE);
+                          tv.setGravity(Gravity.CENTER);
+                          GradientDrawable shape = new GradientDrawable();
+                          shape.setShape(GradientDrawable.OVAL);
+                          shape.setColor(Color.parseColor(colorHex));
+                          tv.setBackground(shape);
+                          LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(95, 95);
+                          lp.setMargins(0, 8, 0, 8);
+                          tv.setLayoutParams(lp);
+                          return tv;
+                      }
+
+                      private void addTouchPoint() {
+                          SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                          int size = prefs.getInt("def_size", 110);
+                          float alpha = prefs.getInt("def_alpha", 85) / 100f;
+
+                          final TouchPoint tp = new TouchPoint();
+                          tp.stepNumber = points.size() + 1;
+                          tp.delayMs = prefs.getInt("def_delay", 300);
+                          tp.durationMs = prefs.getInt("def_duration", 60);
+                          tp.useRandom = true;
+
+                          TextView tv = new TextView(this);
+                          tv.setText(String.valueOf(tp.stepNumber));
+                          tv.setTextColor(Color.WHITE);
+                          tv.setTextSize(16);
+                          tv.setGravity(Gravity.CENTER);
+                          tv.setAlpha(alpha);
+
+                          GradientDrawable circle = new GradientDrawable();
+                          circle.setShape(GradientDrawable.OVAL);
+                          circle.setColor(Color.parseColor("#883182CE"));
+                          circle.setStroke(4, Color.WHITE);
+                          tv.setBackground(circle);
+
+                          final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                              size, size,
+                              WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                              WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                              PixelFormat.TRANSLUCENT);
+                          params.gravity = Gravity.TOP | Gravity.START;
+                          params.x = 300 + (points.size() * 40);
+                          params.y = 400 + (points.size() * 40);
+
+                          tp.view = tv;
+                          tp.params = params;
+
+                          tv.setOnTouchListener(new View.OnTouchListener() {
+                              int initX, initY;
+                              float touchX, touchY;
+                              @Override
+                              public boolean onTouch(View v, MotionEvent e) {
+                                  if (isRunning) return false;
+                                  if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                      initX = params.x; initY = params.y;
+                                      touchX = e.getRawX(); touchY = e.getRawY();
+                                      return true;
+                                  } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                      params.x = initX + (int) (e.getRawX() - touchX);
+                                      params.y = initY + (int) (e.getRawY() - touchY);
+                                      wm.updateViewLayout(tv, params);
+                                      return true;
+                                  } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                      if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15) {
+                                          showEditPointDialog(tp);
+                                      }
+                                      return true;
+                                  }
+                                  return false;
+                              }
+                          });
+
+                          points.add(tp);
+                          wm.addView(tv, params);
+                      }
+
+                      private void showEditPointDialog(final TouchPoint tp) {
+                          if (editDialogView != null) wm.removeView(editDialogView);
+
+                          LinearLayout box = new LinearLayout(this);
+                          box.setOrientation(LinearLayout.VERTICAL);
+                          box.setPadding(35, 35, 35, 35);
+                          GradientDrawable bg = new GradientDrawable();
+                          bg.setColor(Color.parseColor("#F7FAFC"));
+                          bg.setCornerRadius(25f);
+                          bg.setStroke(4, Color.parseColor("#3182CE"));
+                          box.setBackground(bg);
+
+                          TextView title = new TextView(this);
+                          title.setText("تعديل اللمسة (نفس الرقم = نقر متزامن)");
+                          title.setTextColor(Color.BLACK);
+                          title.setTextSize(15);
+                          box.addView(title);
+
+                          final EditText etStep = createDialogInput(box, "رقم الخطوة:", String.valueOf(tp.stepNumber));
+                          final EditText etDelay = createDialogInput(box, "الانتظار قبلها (مللي ثانية):", String.valueOf(tp.delayMs));
+                          final EditText etDur = createDialogInput(box, "مدة اللمس/الضغط المطول (مللي ثانية):", String.valueOf(tp.durationMs));
+
+                          final CheckBox cbRand = new CheckBox(this);
+                          cbRand.setText("تفعيل العشوائية الذكية لهذه اللمسة");
+                          cbRand.setTextColor(Color.BLACK);
+                          cbRand.setChecked(tp.useRandom);
+                          box.addView(cbRand);
+
+                          Button btnSave = new Button(this);
+                          btnSave.setText("حفظ التعديل");
+                          btnSave.setBackgroundColor(Color.parseColor("#38A169"));
+                          btnSave.setTextColor(Color.WHITE);
+                          btnSave.setOnClickListener(v -> {
+                              try {
+                                  tp.stepNumber = Integer.parseInt(etStep.getText().toString());
+                                  tp.delayMs = Integer.parseInt(etDelay.getText().toString());
+                                  tp.durationMs = Math.max(20, Integer.parseInt(etDur.getText().toString()));
+                                  tp.useRandom = cbRand.isChecked();
+                                  tp.view.setText(String.valueOf(tp.stepNumber));
+                              } catch (Exception ignored) {}
+                              wm.removeView(editDialogView);
+                              editDialogView = null;
+                          });
+                          box.addView(btnSave);
+
+                          WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                              WindowManager.LayoutParams.WRAP_CONTENT,
+                              WindowManager.LayoutParams.WRAP_CONTENT,
+                              WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                              WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+                              PixelFormat.TRANSLUCENT);
+                          lp.dimAmount = 0.4f;
+                          lp.gravity = Gravity.CENTER;
+
+                          editDialogView = box;
+                          wm.addView(editDialogView, lp);
+                      }
+
+                      private EditText createDialogInput(LinearLayout parent, String label, String val) {
+                          TextView tv = new TextView(this);
+                          tv.setText(label);
+                          tv.setTextColor(Color.DKGRAY);
+                          parent.addView(tv);
+                          EditText et = new EditText(this);
+                          et.setInputType(InputType.TYPE_CLASS_NUMBER);
+                          et.setText(val);
+                          et.setTextColor(Color.BLACK);
+                          parent.addView(et);
+                          return et;
+                      }
+
+                      private void toggleStealth() {
+                          isStealth = !isStealth;
+                          for (TouchPoint tp : points) {
+                              tp.view.setVisibility(isStealth ? View.INVISIBLE : View.VISIBLE);
                           }
-                          @Override
-                          public void onCancelled(GestureDescription gestureDescription) {
-                              runStepGroup(groupIndex + 1);
+                          controlBar.setAlpha(isStealth ? 0.25f : 0.85f);
+                      }
+
+                      private void togglePlay() {
+                          if (points.isEmpty()) {
+                              Toast.makeText(this, "أضف دائرة لمس أولاً من علامة (+)", Toast.LENGTH_SHORT).show();
+                              return;
                           }
-                      }, null);
-                  }, baseDelay);
-              }
+                          isRunning = !isRunning;
+                          btnPlay.setText(isRunning ? "⏸" : "▶");
+                          setPointsTouchable(!isRunning);
+                          if (isRunning) {
+                              runStepGroup(0);
+                          } else {
+                              handler.removeCallbacksAndMessages(null);
+                          }
+                      }
 
-              private void closeAll() {
-                  isRunning = false;
-                  handler.removeCallbacksAndMessages(null);
-                  for (TouchPoint tp : points) wm.removeView(tp.view);
-                  points.clear();
-                  if (editDialogView != null) { wm.removeView(editDialogView); editDialogView = null; }
-                  if (controlBar != null) { wm.removeView(controlBar); controlBar = null; }
-              }
+                      private void setPointsTouchable(boolean touchable) {
+                          for (TouchPoint tp : points) {
+                              if (touchable) {
+                                  tp.params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                              } else {
+                                  tp.params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                              }
+                              wm.updateViewLayout(tp.view, tp.params);
+                          }
+                      }
 
-              @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
-              @Override public void onInterrupt() {}
-          }
-          EOF
+                      private void runStepGroup(final int groupIndex) {
+                          if (!isRunning || points.isEmpty()) return;
 
+                          List<Integer> uniqueSteps = new ArrayList<>();
+                          for (TouchPoint tp : points) {
+                              if (!uniqueSteps.contains(tp.stepNumber)) uniqueSteps.add(tp.stepNumber);
+                          }
+                          Collections.sort(uniqueSteps);
+
+                          final int currentStepNum = uniqueSteps.get(groupIndex % uniqueSteps.size());
+                          final List<TouchPoint> group = new ArrayList<>();
+                          for (TouchPoint tp : points) {
+                              if (tp.stepNumber == currentStepNum) group.add(tp);
+                          }
+
+                          SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                          final int randPx = prefs.getInt("def_rand_px", 5);
+                          final int randMs = prefs.getInt("def_rand_ms", 25);
+
+                          int baseDelay = group.get(0).delayMs;
+                          if (group.get(0).useRandom && randMs > 0) {
+                              baseDelay += random.nextInt(randMs * 2 + 1) - randMs;
+                          }
+                          baseDelay = Math.max(20, baseDelay);
+
+                          handler.postDelayed(() -> {
+                              if (!isRunning) return;
+                              GestureDescription.Builder builder = new GestureDescription.Builder();
+                              int count = 0;
+                              for (TouchPoint tp : group) {
+                                  if (count >= 10) break;
+                                  int[] loc = new int[2];
+                                  tp.view.getLocationOnScreen(loc);
+                                  float cx = loc[0] + (tp.view.getWidth() / 2f);
+                                  float cy = loc[1] + (tp.view.getHeight() / 2f);
+
+                                  if (tp.useRandom && randPx > 0) {
+                                      cx += random.nextInt(randPx * 2 + 1) - randPx;
+                                      cy += random.nextInt(randPx * 2 + 1) - randPx;
+                                  }
+                                  cx = Math.max(1f, cx);
+                                  cy = Math.max(1f, cy);
+
+                                  Path path = new Path();
+                                  path.moveTo(cx, cy);
+                                  builder.addStroke(new GestureDescription.StrokeDescription(path, 0, tp.durationMs));
+                                  count++;
+                              }
+                              dispatchGesture(builder.build(), new GestureResultCallback() {
+                                  @Override
+                                  public void onCompleted(GestureDescription gestureDescription) {
+                                      runStepGroup(groupIndex + 1);
+                                  }
+                                  @Override
+                                  public void onCancelled(GestureDescription gestureDescription) {
+                                      runStepGroup(groupIndex + 1);
+                                  }
+                              }, null);
+                          }, baseDelay);
+                      }
+
+                      private void closeAll() {
+                          isRunning = false;
+                          handler.removeCallbacksAndMessages(null);
+                          for (TouchPoint tp : points) wm.removeView(tp.view);
+                          points.clear();
+                          if (editDialogView != null) { wm.removeView(editDialogView); editDialogView = null; }
+                          if (controlBar != null) { wm.removeView(controlBar); controlBar = null; }
+                      }
+
+                      @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
+                      @Override public void onInterrupt() {}
+                  }
+              """)
+          PYEOF
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Initialize Smart Clicker project files" || true
+          git commit -m "Generate clean Android project structure" || true
           git push || true
-          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -635,13 +635,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
