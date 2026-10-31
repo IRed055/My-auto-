@@ -1,0 +1,2021 @@
+name: Build Red Auto Clicker v2.0
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Generate Red Auto Clicker v2.0 Files
+        run: |
+          rm -rf app build.gradle settings.gradle
+          python3 - << 'PYEOF'
+          import os, textwrap
+
+          def write_file(path, content):
+              d = os.path.dirname(path)
+              if d:
+                  os.makedirs(d, exist_ok=True)
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(textwrap.dedent(content).lstrip())
+
+          write_file("settings.gradle", """
+              pluginManagement {
+                  repositories {
+                      google()
+                      mavenCentral()
+                      gradlePluginPortal()
+                  }
+              }
+              dependencyResolutionManagement {
+                  repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+                  repositories {
+                      google()
+                      mavenCentral()
+                  }
+              }
+              rootProject.name = "RedAutoClicker"
+              include ':app'
+          """)
+
+          write_file("build.gradle", """
+              plugins {
+                  id 'com.android.application' version '8.2.2' apply false
+              }
+          """)
+
+          write_file("app/build.gradle", """
+              plugins {
+                  id 'com.android.application'
+              }
+              android {
+                  namespace 'com.smartclicker.app'
+                  compileSdk 34
+                  defaultConfig {
+                      applicationId "com.smartclicker.app"
+                      minSdk 24
+                      targetSdk 34
+                      versionCode 2
+                      versionName "2.0"
+                  }
+                  compileOptions {
+                      sourceCompatibility JavaVersion.VERSION_1_8
+                      targetCompatibility JavaVersion.VERSION_1_8
+                  }
+              }
+              dependencies {
+              }
+          """)
+
+          write_file("app/src/main/res/values/strings.xml", """
+              <?xml version="1.0" encoding="utf-8"?>
+              <resources>
+                  <string name="app_name">Red Auto Clicker</string>
+                  <string name="acc_desc">Red Auto Clicker - خدمة النقر الذكي متعددة الطبقات والعمليات للألعاب</string>
+              </resources>
+          """)
+
+          write_file("app/src/main/res/xml/accessibility_config.xml", """
+              <?xml version="1.0" encoding="utf-8"?>
+              <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+                  android:accessibilityEventTypes="typeWindowStateChanged|typeNotificationStateChanged"
+                  android:accessibilityFeedbackType="feedbackGeneric"
+                  android:accessibilityFlags="flagDefault"
+                  android:canPerformGestures="true"
+                  android:canRetrieveWindowContent="true"
+                  android:description="@string/acc_desc" />
+          """)
+
+          write_file("app/src/main/AndroidManifest.xml", """
+              <?xml version="1.0" encoding="utf-8"?>
+              <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+                  <application
+                      android:label="@string/app_name"
+                      android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+                      <activity
+                          android:name=".MainActivity"
+                          android:exported="true">
+                          <intent-filter>
+                              <action android:name="android.intent.action.MAIN" />
+                              <category android:name="android.intent.category.LAUNCHER" />
+                          </intent-filter>
+                      </activity>
+                      <service
+                          android:name=".ClickerService"
+                          android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                          android:exported="true">
+                          <intent-filter>
+                              <action android:name="android.accessibilityservice.AccessibilityService" />
+                          </intent-filter>
+                          <meta-data
+                              android:name="android.accessibilityservice"
+                              android:resource="@xml/accessibility_config" />
+                      </service>
+                  </application>
+              </manifest>
+          """)
+
+          write_file("app/src/main/java/com/smartclicker/app/StepItem.java", """
+              package com.smartclicker.app;
+
+              import android.view.WindowManager;
+              import org.json.JSONObject;
+
+              public class StepItem {
+                  public static final int TYPE_TAP = 0;
+                  public static final int TYPE_SWIPE = 1;
+                  public static final int TYPE_ZOOM_OUT = 2;
+                  public static final int TYPE_ZOOM_IN = 3;
+                  public static final int TYPE_JUMP = 4;
+
+                  public int stepNum = 1;
+                  public int type = TYPE_TAP;
+                  public String name = "";
+                  public int x = 400;
+                  public int y = 400;
+                  public int x2 = 600;
+                  public int y2 = 600;
+                  public int delayMs = 300;
+                  public int durationMs = 60;
+                  public boolean useRandom = true;
+                  public int jumpTargetStep = 1;
+                  public int jumpRepeatCount = 3;
+                  public transient int currentJumpCount = 0;
+
+                  public transient TargetView primaryView;
+                  public transient TargetView secondaryView;
+                  public transient WindowManager.LayoutParams primaryParams;
+                  public transient WindowManager.LayoutParams secondaryParams;
+
+                  public String getTypeLabel() {
+                      switch (type) {
+                          case TYPE_SWIPE: return "سحب ⇄";
+                          case TYPE_ZOOM_OUT: return "تصغير 🔍-";
+                          case TYPE_ZOOM_IN: return "تكبير 🔍+";
+                          case TYPE_JUMP: return "قفز ↺";
+                          default: return "لمسة 🎯";
+                      }
+                  }
+
+                  public boolean hasSecondaryPoint() {
+                      return type == TYPE_SWIPE || type == TYPE_ZOOM_OUT || type == TYPE_ZOOM_IN;
+                  }
+
+                  public JSONObject toJson() {
+                      JSONObject o = new JSONObject();
+                      try {
+                          o.put("stepNum", stepNum);
+                          o.put("type", type);
+                          o.put("name", name == null ? "" : name);
+                          o.put("x", primaryParams != null ? primaryParams.x : x);
+                          o.put("y", primaryParams != null ? primaryParams.y : y);
+                          o.put("x2", secondaryParams != null ? secondaryParams.x : x2);
+                          o.put("y2", secondaryParams != null ? secondaryParams.y : y2);
+                          o.put("delayMs", delayMs);
+                          o.put("durationMs", durationMs);
+                          o.put("useRandom", useRandom);
+                          o.put("jumpTargetStep", jumpTargetStep);
+                          o.put("jumpRepeatCount", jumpRepeatCount);
+                      } catch (Exception ignored) {}
+                      return o;
+                  }
+
+                  public static StepItem fromJson(JSONObject o) {
+                      StepItem s = new StepItem();
+                      s.stepNum = o.optInt("stepNum", 1);
+                      s.type = o.optInt("type", TYPE_TAP);
+                      s.name = o.optString("name", "");
+                      s.x = o.optInt("x", 400);
+                      s.y = o.optInt("y", 400);
+                      s.x2 = o.optInt("x2", 600);
+                      s.y2 = o.optInt("y2", 600);
+                      s.delayMs = o.optInt("delayMs", 300);
+                      s.durationMs = o.optInt("durationMs", 60);
+                      s.useRandom = o.optBoolean("useRandom", true);
+                      s.jumpTargetStep = o.optInt("jumpTargetStep", 1);
+                      s.jumpRepeatCount = o.optInt("jumpRepeatCount", 3);
+                      return s;
+                  }
+              }
+          """)
+
+          write_file("app/src/main/java/com/smartclicker/app/TargetView.java", """
+              package com.smartclicker.app;
+
+              import android.content.Context;
+              import android.graphics.Canvas;
+              import android.graphics.Color;
+              import android.graphics.Paint;
+              import android.view.View;
+
+              public class TargetView extends View {
+                  private final StepItem item;
+                  private final boolean isSecondary;
+                  private boolean highlighted = false;
+                  private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+                  public TargetView(Context context, StepItem item, boolean isSecondary) {
+                      super(context);
+                      this.item = item;
+                      this.isSecondary = isSecondary;
+
+                      ringPaint.setStyle(Paint.Style.STROKE);
+                      ringPaint.setStrokeWidth(3.5f);
+
+                      fillPaint.setStyle(Paint.Style.FILL);
+
+                      textPaint.setColor(Color.WHITE);
+                      textPaint.setTextSize(26f);
+                      textPaint.setTextAlign(Paint.Align.CENTER);
+                      textPaint.setFakeBoldText(true);
+                      textPaint.setShadowLayer(4f, 0f, 0f, Color.BLACK);
+                  }
+
+                  public void setHighlighted(boolean h) {
+                      if (this.highlighted != h) {
+                          this.highlighted = h;
+                          invalidate();
+                      }
+                  }
+
+                  @Override
+                  protected void onDraw(Canvas canvas) {
+                      super.onDraw(canvas);
+                      float w = getWidth();
+                      float h = getHeight();
+                      float cx = w / 2f;
+                      float cy = h / 2f;
+                      float r = Math.min(w, h) / 2f - 4f;
+
+                      int baseColor;
+                      if (highlighted) {
+                          baseColor = Color.parseColor("#FFD700");
+                      } else {
+                          switch (item.type) {
+                              case StepItem.TYPE_SWIPE:
+                                  baseColor = Color.parseColor("#10B981");
+                                  break;
+                              case StepItem.TYPE_ZOOM_OUT:
+                                  baseColor = Color.parseColor("#06B6D4");
+                                  break;
+                              case StepItem.TYPE_ZOOM_IN:
+                                  baseColor = Color.parseColor("#8B5CF6");
+                                  break;
+                              case StepItem.TYPE_JUMP:
+                                  baseColor = Color.parseColor("#F59E0B");
+                                  break;
+                              default:
+                                  baseColor = Color.parseColor("#EF4444");
+                                  break;
+                          }
+                      }
+
+                      fillPaint.setColor(highlighted ? Color.argb(130, 255, 215, 0) : Color.argb(45, Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor)));
+                      canvas.drawCircle(cx, cy, r, fillPaint);
+
+                      ringPaint.setColor(baseColor);
+                      ringPaint.setStrokeWidth(highlighted ? 6f : 3.2f);
+                      canvas.drawCircle(cx, cy, r, ringPaint);
+
+                      // رسم خطوط التصويب النحيفة (Crosshair)
+                      float tickLen = r * 0.35f;
+                      canvas.drawLine(cx - r, cy, cx - r + tickLen, cy, ringPaint);
+                      canvas.drawLine(cx + r - tickLen, cy, cx + r, cy, ringPaint);
+                      canvas.drawLine(cx, cy - r, cx, cy - r + tickLen, ringPaint);
+                      canvas.drawLine(cx, cy + r - tickLen, cx, cy + r, ringPaint);
+
+                      // نقطة مركزية دقيقة
+                      fillPaint.setColor(highlighted ? Color.YELLOW : Color.WHITE);
+                      canvas.drawCircle(cx, cy, 3f, fillPaint);
+
+                      String label = String.valueOf(item.stepNum);
+                      if (item.type == StepItem.TYPE_SWIPE) {
+                          label += isSecondary ? "E" : "S";
+                      } else if (item.type == StepItem.TYPE_ZOOM_OUT) {
+                          label += isSecondary ? "B-" : "A-";
+                      } else if (item.type == StepItem.TYPE_ZOOM_IN) {
+                          label += isSecondary ? "B+" : "A+";
+                      } else if (item.type == StepItem.TYPE_JUMP) {
+                          label += "↺";
+                      }
+
+                      textPaint.setColor(highlighted ? Color.BLACK : Color.WHITE);
+                      Paint.FontMetrics fm = textPaint.getFontMetrics();
+                      float textY = cy - (fm.ascent + fm.descent) / 2f;
+                      canvas.drawText(label, cx, textY, textPaint);
+                  }
+              }
+          """)
+
+          write_file("app/src/main/java/com/smartclicker/app/StorageManager.java", """
+              package com.smartclicker.app;
+
+              import android.content.Context;
+              import android.content.SharedPreferences;
+              import org.json.JSONArray;
+              import org.json.JSONObject;
+              import java.util.ArrayList;
+              import java.util.List;
+
+              public class StorageManager {
+                  private static final String PREF_NAME = "RedClickerStorage";
+                  private static final String KEY_DATA = "folders_json";
+
+                  public static JSONObject getRoot(Context ctx) {
+                      SharedPreferences sp = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+                      String raw = sp.getString(KEY_DATA, null);
+                      if (raw != null) {
+                          try { return new JSONObject(raw); } catch (Exception ignored) {}
+                      }
+                      JSONObject root = new JSONObject();
+                      try {
+                          JSONObject folders = new JSONObject();
+                          folders.put("الهجوم الرئيسي", new JSONObject());
+                          folders.put("القرية الصباحية", new JSONObject());
+                          folders.put("القرية الليلية", new JSONObject());
+                          root.put("folders", folders);
+                      } catch (Exception ignored) {}
+                      saveRoot(ctx, root);
+                      return root;
+                  }
+
+                  public static void saveRoot(Context ctx, JSONObject root) {
+                      ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                          .edit().putString(KEY_DATA, root.toString()).apply();
+                  }
+
+                  public static List<String> getFolderNames(Context ctx) {
+                      List<String> list = new ArrayList<>();
+                      JSONObject folders = getRoot(ctx).optJSONObject("folders");
+                      if (folders != null) {
+                          JSONArray names = folders.names();
+                          if (names != null) {
+                              for (int i = 0; i < names.length(); i++) {
+                                  list.add(names.optString(i));
+                              }
+                          }
+                      }
+                      if (list.isEmpty()) {
+                          addFolder(ctx, "الهجوم الرئيسي");
+                          list.add("الهجوم الرئيسي");
+                      }
+                      return list;
+                  }
+
+                  public static void addFolder(Context ctx, String folderName) {
+                      try {
+                          JSONObject root = getRoot(ctx);
+                          JSONObject folders = root.optJSONObject("folders");
+                          if (folders == null) { folders = new JSONObject(); root.put("folders", folders); }
+                          if (!folders.has(folderName)) {
+                              folders.put(folderName, new JSONObject());
+                              saveRoot(ctx, root);
+                          }
+                      } catch (Exception ignored) {}
+                  }
+
+                  public static void deleteFolder(Context ctx, String folderName) {
+                      try {
+                          JSONObject root = getRoot(ctx);
+                          JSONObject folders = root.optJSONObject("folders");
+                          if (folders != null) {
+                              folders.remove(folderName);
+                              saveRoot(ctx, root);
+                          }
+                      } catch (Exception ignored) {}
+                  }
+
+                  public static List<String> getProfileNames(Context ctx, String folderName) {
+                      List<String> list = new ArrayList<>();
+                      JSONObject folders = getRoot(ctx).optJSONObject("folders");
+                      if (folders != null) {
+                          JSONObject folder = folders.optJSONObject(folderName);
+                          if (folder != null) {
+                              JSONArray names = folder.names();
+                              if (names != null) {
+                                  for (int i = 0; i < names.length(); i++) {
+                                      list.add(names.optString(i));
+                                  }
+                              }
+                          }
+                      }
+                      return list;
+                  }
+
+                  public static void saveProfile(Context ctx, String folderName, String profileName, List<StepItem> steps) {
+                      try {
+                          JSONObject root = getRoot(ctx);
+                          JSONObject folders = root.optJSONObject("folders");
+                          if (folders == null) { folders = new JSONObject(); root.put("folders", folders); }
+                          JSONObject folder = folders.optJSONObject(folderName);
+                          if (folder == null) { folder = new JSONObject(); folders.put(folderName, folder); }
+                          JSONArray arr = new JSONArray();
+                          for (StepItem s : steps) arr.put(s.toJson());
+                          folder.put(profileName, arr);
+                          saveRoot(ctx, root);
+                      } catch (Exception ignored) {}
+                  }
+
+                  public static List<StepItem> loadProfile(Context ctx, String folderName, String profileName) {
+                      List<StepItem> list = new ArrayList<>();
+                      JSONObject folders = getRoot(ctx).optJSONObject("folders");
+                      if (folders != null) {
+                          JSONObject folder = folders.optJSONObject(folderName);
+                          if (folder != null) {
+                              JSONArray arr = folder.optJSONArray(profileName);
+                              if (arr != null) {
+                                  for (int i = 0; i < arr.length(); i++) {
+                                      JSONObject o = arr.optJSONObject(i);
+                                      if (o != null) list.add(StepItem.fromJson(o));
+                                  }
+                              }
+                          }
+                      }
+                      return list;
+                  }
+
+                  public static void deleteProfile(Context ctx, String folderName, String profileName) {
+                      try {
+                          JSONObject root = getRoot(ctx);
+                          JSONObject folders = root.optJSONObject("folders");
+                          if (folders != null) {
+                              JSONObject folder = folders.optJSONObject(folderName);
+                              if (folder != null) {
+                                  folder.remove(profileName);
+                                  saveRoot(ctx, root);
+                              }
+                          }
+                      } catch (Exception ignored) {}
+                  }
+              }
+          """)
+
+          write_file("app/src/main/java/com/smartclicker/app/MainActivity.java", """
+              package com.smartclicker.app;
+
+              import android.app.Activity;
+              import android.app.AlertDialog;
+              import android.content.ClipData;
+              import android.content.ClipboardManager;
+              import android.content.Intent;
+              import android.content.SharedPreferences;
+              import android.graphics.Color;
+              import android.graphics.drawable.GradientDrawable;
+              import android.os.Bundle;
+              import android.provider.Settings;
+              import android.text.InputType;
+              import android.view.Gravity;
+              import android.widget.Button;
+              import android.widget.CheckBox;
+              import android.widget.EditText;
+              import android.widget.LinearLayout;
+              import android.widget.ScrollView;
+              import android.widget.TextView;
+              import android.widget.Toast;
+              import org.json.JSONObject;
+
+              public class MainActivity extends Activity {
+                  private EditText etDelay, etDuration, etSwipeDur, etRandomPx, etRandomMs, etRandomDurMs, etSize, etAlpha, etShrinkSec;
+                  private CheckBox cbHorizontal, cbShowHud;
+                  private SharedPreferences prefs;
+
+                  @Override
+                  protected void onCreate(Bundle savedInstanceState) {
+                      super.onCreate(savedInstanceState);
+                      prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+
+                      ScrollView scroll = new ScrollView(this);
+                      scroll.setBackgroundColor(Color.parseColor("#121214"));
+
+                      LinearLayout layout = new LinearLayout(this);
+                      layout.setOrientation(LinearLayout.VERTICAL);
+                      layout.setPadding(36, 36, 36, 50);
+
+                      // Header
+                      LinearLayout header = new LinearLayout(this);
+                      header.setOrientation(LinearLayout.VERTICAL);
+                      header.setPadding(30, 35, 30, 35);
+                      GradientDrawable hBg = new GradientDrawable(
+                          GradientDrawable.Orientation.LEFT_RIGHT,
+                          new int[]{Color.parseColor("#991B1B"), Color.parseColor("#DC2626")});
+                      hBg.setCornerRadius(24f);
+                      header.setBackground(hBg);
+
+                      TextView title = new TextView(this);
+                      title.setText("RED AUTO CLICKER v2.0");
+                      title.setTextSize(22);
+                      title.setTextColor(Color.WHITE);
+                      title.setGravity(Gravity.CENTER);
+                      title.getPaint().setFakeBoldText(true);
+                      header.addView(title);
+
+                      TextView sub = new TextView(this);
+                      sub.setText("نظام التحكم المتقدم متعدد الطبقات للألعاب");
+                      sub.setTextSize(13);
+                      sub.setTextColor(Color.parseColor("#FEE2E2"));
+                      sub.setGravity(Gravity.CENTER);
+                      header.addView(sub);
+                      layout.addView(header);
+
+                      Button btnAcc = createButton("1. تفعيل خدمة إمكانية الوصول (إلزامي)", "#2563EB");
+                      btnAcc.setOnClickListener(v -> {
+                          startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                          Toast.makeText(this, "اختر (Red Auto Clicker) وقم بتفعيله", Toast.LENGTH_LONG).show();
+                      });
+                      layout.addView(btnAcc);
+
+                      Button btnStart = createButton("2. تشغيل وإظهار شريط Red العائم", "#DC2626");
+                      btnStart.setOnClickListener(v -> {
+                          savePreferences();
+                          if (ClickerService.instance != null) {
+                              ClickerService.instance.showControlBar();
+                              Toast.makeText(this, "تم إظهار الشريط العائم بنجاح", Toast.LENGTH_SHORT).show();
+                          } else {
+                              Toast.makeText(this, "فعّل خدمة إمكانية الوصول أولاً من الزر رقم 1", Toast.LENGTH_LONG).show();
+                          }
+                      });
+                      layout.addView(btnStart);
+
+                      LinearLayout rowBtns = new LinearLayout(this);
+                      rowBtns.setOrientation(LinearLayout.HORIZONTAL);
+                      Button btnGuide = createButton("📖 دليل الأوامر والشرح", "#374151");
+                      btnGuide.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                      btnGuide.setOnClickListener(v -> showGuideDialog());
+
+                      Button btnBackup = createButton("📦 تصدير / استيراد السجلات", "#4B5563");
+                      LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                      bp.setMargins(16, 20, 0, 10);
+                      btnBackup.setLayoutParams(bp);
+                      btnBackup.setOnClickListener(v -> showBackupDialog());
+
+                      LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                      gp.setMargins(0, 20, 0, 10);
+                      btnGuide.setLayoutParams(gp);
+
+                      rowBtns.addView(btnGuide);
+                      rowBtns.addView(btnBackup);
+                      layout.addView(rowBtns);
+
+                      addSectionHeader(layout, "⚙️ التوقيت الافتراضي للخطوات الجديدة");
+                      etDelay = addInputField(layout, "وقت الانتظار قبل العملية (مللي ثانية - 1000 = ثانية):", String.valueOf(prefs.getInt("def_delay", 300)));
+                      etDuration = addInputField(layout, "مدة اللمسة العادية (مللي ثانية - ينصح بـ 50 إلى 80):", String.valueOf(prefs.getInt("def_duration", 60)));
+                      etSwipeDur = addInputField(layout, "مدة السحب أو التصغير/التكبير (مللي ثانية - ينصح بـ 350):", String.valueOf(prefs.getInt("def_swipe_dur", 350)));
+
+                      addSectionHeader(layout, "🛡️ مكافحة الكشف والحظر (العشوائية الذكية)");
+                      etRandomPx = addInputField(layout, "نطاق انتشار اللمسة بالبكسل (الدقيق والآمن: من 8 إلى 15 بكسل):", String.valueOf(prefs.getInt("def_rand_px", 11)));
+                      etRandomMs = addInputField(layout, "عشوائية وقت الانتظار (مللي ثانية - ينصح بـ 25 إلى 50):", String.valueOf(prefs.getInt("def_rand_ms", 35)));
+                      etRandomDurMs = addInputField(layout, "عشوائية مدة اللمس (مللي ثانية - ينصح بـ 15):", String.valueOf(prefs.getInt("def_rand_dur", 15)));
+
+                      addSectionHeader(layout, "🎨 المظهر والشريط العائم الذكي");
+                      etSize = addInputField(layout, "حجم دائرة التصويب البصري فقط (من 65 إلى 180 - لا يؤثر على البكسل):", String.valueOf(prefs.getInt("def_size", 95)));
+                      etAlpha = addInputField(layout, "شفافية الشريط والدوائر (من 25 إلى 100%):", String.valueOf(prefs.getInt("def_alpha", 85)));
+                      etShrinkSec = addInputField(layout, "تحويل الشريط لفقاعة (R) تلقائياً بعد عدم اللمس بـ (ثوانٍ - 0 لإلغائه):", String.valueOf(prefs.getInt("def_shrink_sec", 4)));
+
+                      cbHorizontal = new CheckBox(this);
+                      cbHorizontal.setText("عرض الشريط العائم بشكل أفقي (عرضي)");
+                      cbHorizontal.setTextColor(Color.WHITE);
+                      cbHorizontal.setChecked(prefs.getBoolean("bar_horizontal", true));
+                      layout.addView(cbHorizontal);
+
+                      cbShowHud = new CheckBox(this);
+                      cbShowHud.setText("إظهار نافذة العداد العائمة المصغرة (شفافة للمس ولا تحجب اللعبة)");
+                      cbShowHud.setTextColor(Color.WHITE);
+                      cbShowHud.setChecked(prefs.getBoolean("show_hud", true));
+                      layout.addView(cbShowHud);
+
+                      Button btnSave = createButton("💾 حفظ جميع الإعدادات وتحديث الشريط", "#16A34A");
+                      btnSave.setOnClickListener(v -> {
+                          savePreferences();
+                          if (ClickerService.instance != null) {
+                              ClickerService.instance.refreshBarStyle();
+                          }
+                      });
+                      layout.addView(btnSave);
+
+                      scroll.addView(layout);
+                      setContentView(scroll);
+                  }
+
+                  private void addSectionHeader(LinearLayout parent, String text) {
+                      TextView tv = new TextView(this);
+                      tv.setText(text);
+                      tv.setTextSize(16);
+                      tv.setTextColor(Color.parseColor("#F87171"));
+                      tv.getPaint().setFakeBoldText(true);
+                      tv.setPadding(0, 35, 0, 10);
+                      parent.addView(tv);
+                  }
+
+                  private void savePreferences() {
+                      try {
+                          prefs.edit()
+                              .putInt("def_delay", Math.max(10, Integer.parseInt(etDelay.getText().toString())))
+                              .putInt("def_duration", Math.max(15, Integer.parseInt(etDuration.getText().toString())))
+                              .putInt("def_swipe_dur", Math.max(50, Integer.parseInt(etSwipeDur.getText().toString())))
+                              .putInt("def_rand_px", Math.max(0, Integer.parseInt(etRandomPx.getText().toString())))
+                              .putInt("def_rand_ms", Math.max(0, Integer.parseInt(etRandomMs.getText().toString())))
+                              .putInt("def_rand_dur", Math.max(0, Integer.parseInt(etRandomDurMs.getText().toString())))
+                              .putInt("def_size", Math.max(60, Math.min(220, Integer.parseInt(etSize.getText().toString()))))
+                              .putInt("def_alpha", Math.max(20, Math.min(100, Integer.parseInt(etAlpha.getText().toString()))))
+                              .putInt("def_shrink_sec", Math.max(0, Integer.parseInt(etShrinkSec.getText().toString())))
+                              .putBoolean("bar_horizontal", cbHorizontal.isChecked())
+                              .putBoolean("show_hud", cbShowHud.isChecked())
+                              .apply();
+                          Toast.makeText(this, "تم حفظ الإعدادات بنجاح", Toast.LENGTH_SHORT).show();
+                      } catch (Exception e) {
+                          Toast.makeText(this, "يرجى التأكد من إدخال أرقام صحيحة", Toast.LENGTH_SHORT).show();
+                      }
+                  }
+
+                  private void showGuideDialog() {
+                      String guide =
+                          "• زر (+) ضغطة عادية: يضيف دائرة لمس عادية فوراً.\n" +
+                          "• زر (+) ضغطة مطولة: يفتح قائمة إضافة (سحب ⇄، تصغير 🔍-، تكبير 🔍+، قفز وتكرار ↺).\n\n" +
+                          "• النقر المتزامن (بنفس اللحظة): أعطِ أكثر من دائرة نفس رقم الخطوة (أو ادمجها من قائمة الطبقات).\n\n" +
+                          "• زر الطبقات (📋) ضغطة عادية: يفتح جدول الخطوات لتسميتها، أو إدراج خطوة في المنتصف، أو توحيد سرعة مجموعة خطوات (مثلاً من 20 إلى 30)، أو تجربة التشغيل من خطوة محددة.\n\n" +
+                          "• زر الطبقات (📋) ضغطة مطولة: يفتح المجلدات لحفظ واسترجاع السيناريوهات بلمسة واحدة.\n\n" +
+                          "• زر العين (👁) ضغطة مطولة: يتيح إظهار آخر 5 لمسات فقط لمنع زحمة الشاشة، أو قفل الخطوات القديمة، أو تجميد لمس اللعبة.\n\n" +
+                          "• مقبض السحب (⠿) ضغطة مطولة: يقفل مكان الشريط أو يقلبه بين الأفقي والعمودي.";
+                      new AlertDialog.Builder(this)
+                          .setTitle("دليل أوامر Red Auto Clicker")
+                          .setMessage(guide)
+                          .setPositiveButton("فهمت", null)
+                          .show();
+                  }
+
+                  private void showBackupDialog() {
+                      LinearLayout box = new LinearLayout(this);
+                      box.setOrientation(LinearLayout.VERTICAL);
+                      box.setPadding(30, 20, 30, 20);
+
+                      final EditText etJson = new EditText(this);
+                      etJson.setText(StorageManager.getRoot(this).toString());
+                      etJson.setMaxLines(8);
+                      box.addView(etJson);
+
+                      new AlertDialog.Builder(this)
+                          .setTitle("تصدير واستيراد جميع المجلدات")
+                          .setView(box)
+                          .setPositiveButton("نسخ الكل للحافظة", (d, w) -> {
+                              ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                              cm.setPrimaryClip(ClipData.newPlainText("RedClickerBackup", etJson.getText().toString()));
+                              Toast.makeText(this, "تم نسخ جميع مجلداتك للحافظة!", Toast.LENGTH_SHORT).show();
+                          })
+                          .setNeutralButton("استيراد وحفظ النص", (d, w) -> {
+                              try {
+                                  JSONObject root = new JSONObject(etJson.getText().toString());
+                                  StorageManager.saveRoot(this, root);
+                                  Toast.makeText(this, "تم استيراد المجلدات والسجلات بنجاح!", Toast.LENGTH_SHORT).show();
+                              } catch (Exception e) {
+                                  Toast.makeText(this, "النص غير صالح!", Toast.LENGTH_SHORT).show();
+                              }
+                          })
+                          .setNegativeButton("إغلاق", null)
+                          .show();
+                  }
+
+                  private EditText addInputField(LinearLayout parent, String labelText, String defaultVal) {
+                      TextView tv = new TextView(this);
+                      tv.setText(labelText);
+                      tv.setTextColor(Color.parseColor("#E4E4E7"));
+                      tv.setTextSize(13);
+                      tv.setPadding(0, 16, 0, 6);
+                      parent.addView(tv);
+
+                      EditText et = new EditText(this);
+                      et.setInputType(InputType.TYPE_CLASS_NUMBER);
+                      et.setText(defaultVal);
+                      et.setTextColor(Color.WHITE);
+                      GradientDrawable bg = new GradientDrawable();
+                      bg.setColor(Color.parseColor("#27272A"));
+                      bg.setCornerRadius(14f);
+                      bg.setStroke(2, Color.parseColor("#3F3F46"));
+                      et.setBackground(bg);
+                      et.setPadding(24, 16, 24, 16);
+                      parent.addView(et);
+                      return et;
+                  }
+
+                  private Button createButton(String text, String colorHex) {
+                      Button btn = new Button(this);
+                      btn.setText(text);
+                      btn.setTextColor(Color.WHITE);
+                      GradientDrawable bg = new GradientDrawable();
+                      bg.setColor(Color.parseColor(colorHex));
+                      bg.setCornerRadius(18f);
+                      btn.setBackground(bg);
+                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                      lp.setMargins(0, 20, 0, 6);
+                      btn.setLayoutParams(lp);
+                      return btn;
+                  }
+              }
+          """)
+
+          write_file("app/src/main/java/com/smartclicker/app/ClickerService.java", """
+              package com.smartclicker.app;
+
+              import android.accessibilityservice.AccessibilityService;
+              import android.accessibilityservice.GestureDescription;
+              import android.content.SharedPreferences;
+              import android.graphics.Color;
+              import android.graphics.Path;
+              import android.graphics.PixelFormat;
+              import android.graphics.drawable.GradientDrawable;
+              import android.os.Handler;
+              import android.os.Looper;
+              import android.text.InputType;
+              import android.util.DisplayMetrics;
+              import android.view.Gravity;
+              import android.view.MotionEvent;
+              import android.view.View;
+              import android.view.WindowManager;
+              import android.view.accessibility.AccessibilityEvent;
+              import android.widget.Button;
+              import android.widget.CheckBox;
+              import android.widget.EditText;
+              import android.widget.LinearLayout;
+              import android.widget.ScrollView;
+              import android.widget.TextView;
+              import android.widget.Toast;
+
+              import java.util.ArrayList;
+              import java.util.Collections;
+              import java.util.List;
+              import java.util.Random;
+
+              public class ClickerService extends AccessibilityService {
+                  public static ClickerService instance;
+                  private WindowManager wm;
+                  private LinearLayout rootBarContainer;
+                  private LinearLayout buildBarLayout;
+                  private LinearLayout playBarLayout;
+                  private TextView bubbleView;
+                  private TextView hudView;
+                  private WindowManager.LayoutParams barParams;
+                  private WindowManager.LayoutParams hudParams;
+                  private View activePopupDialog;
+                  private View freezeOverlayView;
+
+                  private final List<StepItem> steps = new ArrayList<>();
+                  private boolean isRunning = false;
+                  private boolean isPaused = false;
+                  private boolean isAllHidden = false;
+                  private boolean showLast5Only = false;
+                  private boolean lockPreviousSteps = false;
+                  private boolean isBarPositionLocked = false;
+                  private boolean isGameTouchFrozen = false;
+
+                  private int currentGroupIndex = 0;
+                  private int currentLoopCycle = 1;
+                  private String currentFolder = "الهجوم الرئيسي";
+
+                  private final Handler handler = new Handler(Looper.getMainLooper());
+                  private final Handler shrinkHandler = new Handler(Looper.getMainLooper());
+                  private final Random random = new Random();
+                  private TextView tvPlayStatus;
+                  private TextView btnPauseResume;
+
+                  @Override
+                  protected void onServiceConnected() {
+                      super.onServiceConnected();
+                      instance = this;
+                      wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+                      showControlBar();
+                  }
+
+                  public void showControlBar() {
+                      if (rootBarContainer != null) {
+                          expandFromBubble();
+                          return;
+                      }
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      float alpha = prefs.getInt("def_alpha", 85) / 100f;
+                      boolean isHoriz = prefs.getBoolean("bar_horizontal", true);
+
+                      rootBarContainer = new LinearLayout(this);
+                      rootBarContainer.setOrientation(LinearLayout.VERTICAL);
+
+                      // 1. الفقاعة المنكمشة R
+                      bubbleView = new TextView(this);
+                      bubbleView.setText("R");
+                      bubbleView.setTextColor(Color.WHITE);
+                      bubbleView.setTextSize(18);
+                      bubbleView.getPaint().setFakeBoldText(true);
+                      bubbleView.setGravity(Gravity.CENTER);
+                      GradientDrawable bShape = new GradientDrawable();
+                      bShape.setShape(GradientDrawable.OVAL);
+                      bShape.setColor(Color.parseColor("#CCDC2626"));
+                      bShape.setStroke(3, Color.WHITE);
+                      bubbleView.setBackground(bShape);
+                      bubbleView.setLayoutParams(new LinearLayout.LayoutParams(95, 95));
+                      bubbleView.setVisibility(View.GONE);
+                      bubbleView.setOnClickListener(v -> expandFromBubble());
+                      rootBarContainer.addView(bubbleView);
+
+                      // 2. شريط وضع البناء
+                      buildBarLayout = new LinearLayout(this);
+                      buildBarLayout.setOrientation(isHoriz ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+                      GradientDrawable bg = new GradientDrawable();
+                      bg.setColor(Color.parseColor("#E618181B"));
+                      bg.setCornerRadius(32f);
+                      bg.setStroke(2, Color.parseColor("#DC2626"));
+                      buildBarLayout.setBackground(bg);
+                      buildBarLayout.setPadding(14, 12, 14, 12);
+
+                      TextView btnGrip = createBarButton("⠿", "#3F3F46");
+                      setupDragAndLock(btnGrip);
+                      buildBarLayout.addView(btnGrip);
+
+                      TextView btnPlay = createBarButton("▶", "#16A34A");
+                      btnPlay.setOnClickListener(v -> {
+                          touchBarActivity();
+                          startScenario(0);
+                      });
+                      buildBarLayout.addView(btnPlay);
+
+                      TextView btnAdd = createBarButton("+", "#DC2626");
+                      btnAdd.setOnClickListener(v -> {
+                          touchBarActivity();
+                          if (!isRunning) addStep(StepItem.TYPE_TAP);
+                      });
+                      btnAdd.setOnLongClickListener(v -> {
+                          touchBarActivity();
+                          if (!isRunning) showAddSubmenu();
+                          return true;
+                      });
+                      buildBarLayout.addView(btnAdd);
+
+                      TextView btnRemove = createBarButton("-", "#CA8A04");
+                      btnRemove.setOnClickListener(v -> {
+                          touchBarActivity();
+                          if (!isRunning && !steps.isEmpty()) {
+                              StepItem last = steps.remove(steps.size() - 1);
+                              removeStepViews(last);
+                              applyVisibilityRules();
+                          }
+                      });
+                      buildBarLayout.addView(btnRemove);
+
+                      TextView btnLayers = createBarButton("📋", "#2563EB");
+                      btnLayers.setOnClickListener(v -> {
+                          touchBarActivity();
+                          if (!isRunning) showLayersDialog();
+                      });
+                      btnLayers.setOnLongClickListener(v -> {
+                          touchBarActivity();
+                          if (!isRunning) showFoldersDialog();
+                          return true;
+                      });
+                      buildBarLayout.addView(btnLayers);
+
+                      TextView btnQuick = createBarButton("⚙️", "#4B5563");
+                      btnQuick.setOnClickListener(v -> {
+                          touchBarActivity();
+                          if (!isRunning) showQuickNextSettingsDialog();
+                      });
+                      buildBarLayout.addView(btnQuick);
+
+                      TextView btnEye = createBarButton("👁", "#7C3AED");
+                      btnEye.setOnClickListener(v -> {
+                          touchBarActivity();
+                          isAllHidden = !isAllHidden;
+                          applyVisibilityRules();
+                          Toast.makeText(this, isAllHidden ? "تم إخفاء الدوائر" : "تم إظهار الدوائر", Toast.LENGTH_SHORT).show();
+                      });
+                      btnEye.setOnLongClickListener(v -> {
+                          touchBarActivity();
+                          showVisibilitySubmenu();
+                          return true;
+                      });
+                      buildBarLayout.addView(btnEye);
+
+                      TextView btnClose = createBarButton("✖", "#991B1B");
+                      btnClose.setOnClickListener(v -> closeAll());
+                      buildBarLayout.addView(btnClose);
+
+                      rootBarContainer.addView(buildBarLayout);
+
+                      // 3. شريط وضع التشغيل والهجوم المدمج
+                      playBarLayout = new LinearLayout(this);
+                      playBarLayout.setOrientation(LinearLayout.HORIZONTAL);
+                      playBarLayout.setGravity(Gravity.CENTER_VERTICAL);
+                      GradientDrawable pBg = new GradientDrawable();
+                      pBg.setColor(Color.parseColor("#CC18181B"));
+                      pBg.setCornerRadius(30f);
+                      pBg.setStroke(2, Color.parseColor("#16A34A"));
+                      playBarLayout.setBackground(pBg);
+                      playBarLayout.setPadding(14, 10, 14, 10);
+                      playBarLayout.setVisibility(View.GONE);
+
+                      btnPauseResume = createBarButton("⏸", "#CA8A04");
+                      btnPauseResume.setOnClickListener(v -> togglePauseResume());
+                      playBarLayout.addView(btnPauseResume);
+
+                      TextView btnSkip = createBarButton("⏭", "#2563EB");
+                      btnSkip.setOnClickListener(v -> skipCurrentStep());
+                      playBarLayout.addView(btnSkip);
+
+                      TextView btnStop = createBarButton("⏹", "#DC2626");
+                      btnStop.setOnClickListener(v -> stopScenario());
+                      playBarLayout.addView(btnStop);
+
+                      tvPlayStatus = new TextView(this);
+                      tvPlayStatus.setText("0/0");
+                      tvPlayStatus.setTextColor(Color.WHITE);
+                      tvPlayStatus.setTextSize(12);
+                      tvPlayStatus.setPadding(14, 0, 10, 0);
+                      playBarLayout.addView(tvPlayStatus);
+
+                      rootBarContainer.addView(playBarLayout);
+                      rootBarContainer.setAlpha(alpha);
+
+                      barParams = new WindowManager.LayoutParams(
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                          PixelFormat.TRANSLUCENT);
+                      barParams.gravity = Gravity.TOP | Gravity.START;
+                      barParams.x = 40;
+                      barParams.y = 80;
+
+                      wm.addView(rootBarContainer, barParams);
+                      setupHudOverlay();
+                      scheduleAutoShrink();
+                  }
+
+                  private void setupHudOverlay() {
+                      if (hudView != null) return;
+                      hudView = new TextView(this);
+                      hudView.setText("Red Clicker | جاهز (0 خطوة)");
+                      hudView.setTextColor(Color.parseColor("#FEF08A"));
+                      hudView.setTextSize(11);
+                      hudView.setPadding(18, 8, 18, 8);
+                      GradientDrawable hBg = new GradientDrawable();
+                      hBg.setColor(Color.parseColor("#88000000"));
+                      hBg.setCornerRadius(16f);
+                      hudView.setBackground(hBg);
+
+                      hudParams = new WindowManager.LayoutParams(
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                          PixelFormat.TRANSLUCENT);
+                      hudParams.gravity = Gravity.TOP | Gravity.END;
+                      hudParams.x = 25;
+                      hudParams.y = 30;
+
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      if (!prefs.getBoolean("show_hud", true)) {
+                          hudView.setVisibility(View.GONE);
+                      }
+                      wm.addView(hudView, hudParams);
+                  }
+
+                  private void updateHudText(String text) {
+                      if (hudView != null) hudView.setText(text);
+                      if (tvPlayStatus != null) tvPlayStatus.setText(text);
+                  }
+
+                  public void refreshBarStyle() {
+                      if (rootBarContainer == null) return;
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      float alpha = prefs.getInt("def_alpha", 85) / 100f;
+                      boolean isHoriz = prefs.getBoolean("bar_horizontal", true);
+                      rootBarContainer.setAlpha(alpha);
+                      buildBarLayout.setOrientation(isHoriz ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+                      if (hudView != null) {
+                          hudView.setVisibility(prefs.getBoolean("show_hud", true) ? View.VISIBLE : View.GONE);
+                      }
+                      int size = prefs.getInt("def_size", 95);
+                      for (StepItem s : steps) {
+                          if (s.primaryView != null && s.primaryParams != null) {
+                              s.primaryParams.width = size;
+                              s.primaryParams.height = size;
+                              s.primaryView.setAlpha(alpha);
+                              wm.updateViewLayout(s.primaryView, s.primaryParams);
+                          }
+                          if (s.secondaryView != null && s.secondaryParams != null) {
+                              s.secondaryParams.width = size;
+                              s.secondaryParams.height = size;
+                              s.secondaryView.setAlpha(alpha);
+                              wm.updateViewLayout(s.secondaryView, s.secondaryParams);
+                          }
+                      }
+                      scheduleAutoShrink();
+                  }
+
+                  private void touchBarActivity() {
+                      scheduleAutoShrink();
+                  }
+
+                  private void scheduleAutoShrink() {
+                      shrinkHandler.removeCallbacksAndMessages(null);
+                      if (isRunning || isPaused || rootBarContainer == null) return;
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      int sec = prefs.getInt("def_shrink_sec", 4);
+                      if (sec <= 0) return;
+                      shrinkHandler.postDelayed(() -> {
+                          if (!isRunning && !isPaused && buildBarLayout != null && bubbleView != null) {
+                              buildBarLayout.setVisibility(View.GONE);
+                              bubbleView.setVisibility(View.VISIBLE);
+                              bubbleView.setAlpha(0.55f);
+                          }
+                      }, sec * 1000L);
+                  }
+
+                  private void expandFromBubble() {
+                      if (rootBarContainer == null) return;
+                      bubbleView.setVisibility(View.GONE);
+                      if (isRunning || isPaused) {
+                          playBarLayout.setVisibility(View.VISIBLE);
+                      } else {
+                          buildBarLayout.setVisibility(View.VISIBLE);
+                          scheduleAutoShrink();
+                      }
+                  }
+
+                  private void setupDragAndLock(View grip) {
+                      grip.setOnTouchListener(new View.OnTouchListener() {
+                          int initX, initY;
+                          float touchX, touchY;
+                          long downTime;
+                          @Override
+                          public boolean onTouch(View v, MotionEvent e) {
+                              touchBarActivity();
+                              if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                  initX = barParams.x; initY = barParams.y;
+                                  touchX = e.getRawX(); touchY = e.getRawY();
+                                  downTime = System.currentTimeMillis();
+                                  return true;
+                              } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                  if (isBarPositionLocked) return true;
+                                  barParams.x = initX + (int) (e.getRawX() - touchX);
+                                  barParams.y = initY + (int) (e.getRawY() - touchY);
+                                  wm.updateViewLayout(rootBarContainer, barParams);
+                                  return true;
+                              } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                  if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15
+                                      && System.currentTimeMillis() - downTime > 500) {
+                                      showGripOptionsDialog();
+                                  }
+                                  return true;
+                              }
+                              return false;
+                          }
+                      });
+                  }
+
+                  private void showGripOptionsDialog() {
+                      LinearLayout box = createPopupContainer("خيارات الشريط العائم");
+                      Button bLock = createPopupButton(isBarPositionLocked ? "🔓 إلغاء قفل مكان الشريط" : "🔒 قفل مكان الشريط في الشاشة", "#2563EB");
+                      bLock.setOnClickListener(v -> {
+                          isBarPositionLocked = !isBarPositionLocked;
+                          Toast.makeText(this, isBarPositionLocked ? "تم قفل مكان الشريط" : "تم فتح تحريك الشريط", Toast.LENGTH_SHORT).show();
+                          dismissPopup();
+                      });
+                      box.addView(bLock);
+
+                      Button bFlip = createPopupButton("🔄 تبديل اتجاه الشريط (أفقي / عمودي)", "#4B5563");
+                      bFlip.setOnClickListener(v -> {
+                          SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                          boolean cur = prefs.getBoolean("bar_horizontal", true);
+                          prefs.edit().putBoolean("bar_horizontal", !cur).apply();
+                          refreshBarStyle();
+                          dismissPopup();
+                      });
+                      box.addView(bFlip);
+
+                      Button bMin = createPopupButton("🔴 تقليص الشريط لفقاعة (R) الآن", "#DC2626");
+                      bMin.setOnClickListener(v -> {
+                          dismissPopup();
+                          buildBarLayout.setVisibility(View.GONE);
+                          bubbleView.setVisibility(View.VISIBLE);
+                      });
+                      box.addView(bMin);
+
+                      showPopupView(box);
+                  }
+
+                  private TextView createBarButton(String symbol, String colorHex) {
+                      TextView tv = new TextView(this);
+                      tv.setText(symbol);
+                      tv.setTextSize(16);
+                      tv.setTextColor(Color.WHITE);
+                      tv.setGravity(Gravity.CENTER);
+                      GradientDrawable shape = new GradientDrawable();
+                      shape.setShape(GradientDrawable.OVAL);
+                      shape.setColor(Color.parseColor(colorHex));
+                      tv.setBackground(shape);
+                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(82, 82);
+                      lp.setMargins(6, 6, 6, 6);
+                      tv.setLayoutParams(lp);
+                      return tv;
+                  }
+
+                  private void showAddSubmenu() {
+                      LinearLayout box = createPopupContainer("إضافة عملية جديدة (+) :");
+
+                      Button bTap = createPopupButton("🎯 إضافة نقطة لمس عادية", "#EF4444");
+                      bTap.setOnClickListener(v -> { dismissPopup(); addStep(StepItem.TYPE_TAP); });
+                      box.addView(bTap);
+
+                      Button bSwipe = createPopupButton("⇄ إضافة عملية سحب (نقطة بداية S ونهاية E)", "#10B981");
+                      bSwipe.setOnClickListener(v -> { dismissPopup(); addStep(StepItem.TYPE_SWIPE); });
+                      box.addView(bSwipe);
+
+                      Button bZoomOut = createPopupButton("🔍- إضافة تصغير شاشة القرية (إيماءة قرصة)", "#06B6D4");
+                      bZoomOut.setOnClickListener(v -> { dismissPopup(); addStep(StepItem.TYPE_ZOOM_OUT); });
+                      box.addView(bZoomOut);
+
+                      Button bZoomIn = createPopupButton("🔍+ إضافة تكبير الشاشة (انتشار أصبعين)", "#8B5CF6");
+                      bZoomIn.setOnClickListener(v -> { dismissPopup(); addStep(StepItem.TYPE_ZOOM_IN); });
+                      box.addView(bZoomIn);
+
+                      Button bJump = createPopupButton("↺ إضافة نقطة قفز وتكرار لخطوة سابقة", "#F59E0B");
+                      bJump.setOnClickListener(v -> { dismissPopup(); addStep(StepItem.TYPE_JUMP); });
+                      box.addView(bJump);
+
+                      showPopupView(box);
+                  }
+
+                  private void showVisibilitySubmenu() {
+                      LinearLayout box = createPopupContainer("خيارات الرؤية وتسهيل البناء (👁) :");
+
+                      Button bHideAll = createPopupButton(isAllHidden ? "👁 إظهار جميع العلامات" : "🙈 إخفاء جميع العلامات مؤقتاً", "#7C3AED");
+                      bHideAll.setOnClickListener(v -> {
+                          isAllHidden = !isAllHidden;
+                          applyVisibilityRules();
+                          dismissPopup();
+                      });
+                      box.addView(bHideAll);
+
+                      Button bLast5 = createPopupButton(showLast5Only ? "🔢 إظهار كل الخطوات على الشاشة" : "5️⃣ إظهار آخر 5 خطوات فقط (منع الزحمة)", "#2563EB");
+                      bLast5.setOnClickListener(v -> {
+                          showLast5Only = !showLast5Only;
+                          applyVisibilityRules();
+                          dismissPopup();
+                      });
+                      box.addView(bLast5);
+
+                      Button bLockOld = createPopupButton(lockPreviousSteps ? "🔓 فتح تعديل وتحريك الخطوات السابقة" : "🔒 قفل الخطوات السابقة (تحريك الأخيرة فقط)", "#CA8A04");
+                      bLockOld.setOnClickListener(v -> {
+                          lockPreviousSteps = !lockPreviousSteps;
+                          applyVisibilityRules();
+                          dismissPopup();
+                      });
+                      box.addView(bLockOld);
+
+                      Button bFreeze = createPopupButton(isGameTouchFrozen ? "🎮 إعادة تفعيل لمس اللعبة" : "❄️ تجميد لمس اللعبة (للبناء بدون تحريك القرية)", "#0891B2");
+                      bFreeze.setOnClickListener(v -> {
+                          toggleFreezeGameTouch();
+                          dismissPopup();
+                      });
+                      box.addView(bFreeze);
+
+                      Button bHud = createPopupButton(hudView != null && hudView.getVisibility() == View.VISIBLE ? "📊 إخفاء نافذة العداد العلوية" : "📊 إظهار نافذة العداد العلوية", "#4B5563");
+                      bHud.setOnClickListener(v -> {
+                          if (hudView != null) {
+                              hudView.setVisibility(hudView.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                          }
+                          dismissPopup();
+                      });
+                      box.addView(bHud);
+
+                      showPopupView(box);
+                  }
+
+                  private void toggleFreezeGameTouch() {
+                      isGameTouchFrozen = !isGameTouchFrozen;
+                      if (isGameTouchFrozen) {
+                          if (freezeOverlayView == null) {
+                              freezeOverlayView = new View(this);
+                              freezeOverlayView.setBackgroundColor(Color.argb(25, 0, 180, 255));
+                              WindowManager.LayoutParams fp = new WindowManager.LayoutParams(
+                                  WindowManager.LayoutParams.MATCH_PARENT,
+                                  WindowManager.LayoutParams.MATCH_PARENT,
+                                  WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                                  WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                                  PixelFormat.TRANSLUCENT);
+                              wm.addView(freezeOverlayView, fp);
+                              // نعيد رفع الشريط والدوائر فوق طبقة التجميد
+                              wm.removeView(rootBarContainer);
+                              wm.addView(rootBarContainer, barParams);
+                          }
+                          Toast.makeText(this, "تم تجميد لمس اللعبة للبناء براحة", Toast.LENGTH_SHORT).show();
+                      } else {
+                          if (freezeOverlayView != null) {
+                              wm.removeView(freezeOverlayView);
+                              freezeOverlayView = null;
+                          }
+                          Toast.makeText(this, "عاد لمس اللعبة للوضع الطبيعي", Toast.LENGTH_SHORT).show();
+                      }
+                  }
+
+                  private void addStep(int type) {
+                      insertStepAt(steps.size() + 1, type);
+                  }
+
+                  private void insertStepAt(int targetStepNum, int type) {
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      StepItem item = new StepItem();
+                      item.stepNum = targetStepNum;
+                      item.type = type;
+                      item.delayMs = prefs.getInt("def_delay", 300);
+                      item.durationMs = (type == StepItem.TYPE_TAP) ? prefs.getInt("def_duration", 60) : prefs.getInt("def_swipe_dur", 350);
+                      item.useRandom = true;
+                      item.jumpTargetStep = 1;
+                      item.jumpRepeatCount = 3;
+
+                      int offset = (steps.size() % 8) * 35;
+                      item.x = 320 + offset;
+                      item.y = 350 + offset;
+                      item.x2 = item.x + 260;
+                      item.y2 = item.y + (type == StepItem.TYPE_SWIPE ? 200 : 0);
+
+                      createStepViews(item);
+                      steps.add(item);
+                      applyVisibilityRules();
+                      updateHudText("Red Clicker | الخطوات: " + steps.size());
+                  }
+
+                  private void createStepViews(final StepItem item) {
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      int size = prefs.getInt("def_size", 95);
+                      float alpha = prefs.getInt("def_alpha", 85) / 100f;
+
+                      TargetView pv = new TargetView(this, item, false);
+                      pv.setAlpha(alpha);
+                      WindowManager.LayoutParams pp = new WindowManager.LayoutParams(
+                          size, size,
+                          WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                          PixelFormat.TRANSLUCENT);
+                      pp.gravity = Gravity.TOP | Gravity.START;
+                      pp.x = item.x;
+                      pp.y = item.y;
+
+                      item.primaryView = pv;
+                      item.primaryParams = pp;
+                      attachMarkerTouchListener(pv, pp, item, false);
+                      wm.addView(pv, pp);
+
+                      if (item.hasSecondaryPoint()) {
+                          TargetView sv = new TargetView(this, item, true);
+                          sv.setAlpha(alpha);
+                          WindowManager.LayoutParams sp = new WindowManager.LayoutParams(
+                              size, size,
+                              WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                              WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                              PixelFormat.TRANSLUCENT);
+                          sp.gravity = Gravity.TOP | Gravity.START;
+                          sp.x = item.x2;
+                          sp.y = item.y2;
+
+                          item.secondaryView = sv;
+                          item.secondaryParams = sp;
+                          attachMarkerTouchListener(sv, sp, item, true);
+                          wm.addView(sv, sp);
+                      }
+                  }
+
+                  private void attachMarkerTouchListener(final TargetView tv, final WindowManager.LayoutParams lp, final StepItem item, final boolean isSec) {
+                      tv.setOnTouchListener(new View.OnTouchListener() {
+                          int initX, initY;
+                          float touchX, touchY;
+                          @Override
+                          public boolean onTouch(View v, MotionEvent e) {
+                              if (isRunning) return false;
+                              if (lockPreviousSteps && steps.indexOf(item) < steps.size() - 1) {
+                                  Toast.makeText(ClickerService.this, "الخطوات السابقة مقفلة لحمايتها", Toast.LENGTH_SHORT).show();
+                                  return true;
+                              }
+                              if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                  initX = lp.x; initY = lp.y;
+                                  touchX = e.getRawX(); touchY = e.getRawY();
+                                  return true;
+                              } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                  lp.x = initX + (int) (e.getRawX() - touchX);
+                                  lp.y = initY + (int) (e.getRawY() - touchY);
+                                  if (isSec) { item.x2 = lp.x; item.y2 = lp.y; }
+                                  else { item.x = lp.x; item.y = lp.y; }
+                                  wm.updateViewLayout(tv, lp);
+                                  return true;
+                              } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                  if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15) {
+                                      showEditStepDialog(item);
+                                  }
+                                  return true;
+                              }
+                              return false;
+                          }
+                      });
+                  }
+
+                  private void removeStepViews(StepItem item) {
+                      try {
+                          if (item.primaryView != null) wm.removeView(item.primaryView);
+                          if (item.secondaryView != null) wm.removeView(item.secondaryView);
+                      } catch (Exception ignored) {}
+                  }
+
+                  private void applyVisibilityRules() {
+                      int total = steps.size();
+                      for (int i = 0; i < total; i++) {
+                          StepItem s = steps.get(i);
+                          boolean visible = !isAllHidden;
+                          if (visible && showLast5Only && i < total - 5) {
+                              visible = false;
+                          }
+                          int vis = visible ? View.VISIBLE : View.INVISIBLE;
+                          if (s.primaryView != null) {
+                              s.primaryView.setVisibility(vis);
+                              s.primaryView.invalidate();
+                          }
+                          if (s.secondaryView != null) {
+                              s.secondaryView.setVisibility(vis);
+                              s.secondaryView.invalidate();
+                          }
+                      }
+                  }
+
+                  private void showEditStepDialog(final StepItem item) {
+                      LinearLayout box = createPopupContainer("تعديل " + item.getTypeLabel() + " (خطوة " + item.stepNum + ")");
+
+                      final EditText etName = createPopupInput(box, "اسم توضيحي للخطوة (اختياري - مثل: إنزال تنين):", item.name, false);
+                      final EditText etStep = createPopupInput(box, "رقم الخطوة (نفس الرقم = تنفيذ متزامن بنفس اللحظة):", String.valueOf(item.stepNum), true);
+                      final EditText etDelay = createPopupInput(box, "وقت الانتظار قبلها (مللي ثانية):", String.valueOf(item.delayMs), true);
+
+                      final EditText etDur;
+                      final EditText etJumpTarget;
+                      final EditText etJumpRep;
+
+                      if (item.type == StepItem.TYPE_JUMP) {
+                          etDur = null;
+                          etJumpTarget = createPopupInput(box, "ارجع / انتقل إلى الخطوة رقم:", String.valueOf(item.jumpTargetStep), true);
+                          etJumpRep = createPopupInput(box, "عدد مرات تكرار القفزة ثم إكمال المسار:", String.valueOf(item.jumpRepeatCount), true);
+                      } else {
+                          etDur = createPopupInput(box, "مدة اللمس أو السحب (مللي ثانية):", String.valueOf(item.durationMs), true);
+                          etJumpTarget = null;
+                          etJumpRep = null;
+                      }
+
+                      final CheckBox cbRand = new CheckBox(this);
+                      cbRand.setText("تفعيل مكافحة الحظر (انتشار البكسل والتوقيت)");
+                      cbRand.setTextColor(Color.WHITE);
+                      cbRand.setChecked(item.useRandom);
+                      box.addView(cbRand);
+
+                      Button bSave = createPopupButton("💾 حفظ التعديلات", "#16A34A");
+                      bSave.setOnClickListener(v -> {
+                          try {
+                              item.name = etName.getText().toString().trim();
+                              item.stepNum = Math.max(1, Integer.parseInt(etStep.getText().toString()));
+                              item.delayMs = Math.max(10, Integer.parseInt(etDelay.getText().toString()));
+                              if (etDur != null) item.durationMs = Math.max(15, Integer.parseInt(etDur.getText().toString()));
+                              if (etJumpTarget != null) item.jumpTargetStep = Math.max(1, Integer.parseInt(etJumpTarget.getText().toString()));
+                              if (etJumpRep != null) item.jumpRepeatCount = Math.max(1, Integer.parseInt(etJumpRep.getText().toString()));
+                              item.useRandom = cbRand.isChecked();
+                              if (item.primaryView != null) item.primaryView.invalidate();
+                              if (item.secondaryView != null) item.secondaryView.invalidate();
+                          } catch (Exception ignored) {}
+                          dismissPopup();
+                      });
+                      box.addView(bSave);
+
+                      Button bTestFromHere = createPopupButton("▶ تجربة التشغيل بدءاً من هذه الخطوة", "#2563EB");
+                      bTestFromHere.setOnClickListener(v -> {
+                          dismissPopup();
+                          startScenarioFromStepNum(item.stepNum);
+                      });
+                      box.addView(bTestFromHere);
+
+                      Button bDelete = createPopupButton("🗑️ حذف هذه الخطوة", "#991B1B");
+                      bDelete.setOnClickListener(v -> {
+                          steps.remove(item);
+                          removeStepViews(item);
+                          dismissPopup();
+                      });
+                      box.addView(bDelete);
+
+                      showPopupView(box);
+                  }
+
+                  private void showQuickNextSettingsDialog() {
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      LinearLayout box = createPopupContainer("⚙️ إعداد سريع للخطوات القادمة فقط\n(لا يغير توقيت الخطوات السابقة أبداً)");
+
+                      final EditText etDel = createPopupInput(box, "الانتظار للخطوات القادمة (مللي ثانية):", String.valueOf(prefs.getInt("def_delay", 300)), true);
+                      final EditText etDur = createPopupInput(box, "مدة اللمس للخطوات القادمة (مللي ثانية):", String.valueOf(prefs.getInt("def_duration", 60)), true);
+
+                      Button bSave = createPopupButton("اعتماد للخطوات القادمة", "#16A34A");
+                      bSave.setOnClickListener(v -> {
+                          try {
+                              prefs.edit()
+                                  .putInt("def_delay", Math.max(10, Integer.parseInt(etDel.getText().toString())))
+                                  .putInt("def_duration", Math.max(15, Integer.parseInt(etDur.getText().toString())))
+                                  .apply();
+                              Toast.makeText(this, "تم تحديث التوقيت للخطوات الجديدة فقط!", Toast.LENGTH_SHORT).show();
+                          } catch (Exception ignored) {}
+                          dismissPopup();
+                      });
+                      box.addView(bSave);
+                      showPopupView(box);
+                  }
+
+                  private void showLayersDialog() {
+                      LinearLayout box = createPopupContainer("📋 طبقات الأوامر والتعديل الجماعي (" + steps.size() + " خطوة)");
+
+                      // 1. قسم التوحيد الجماعي للتوقيت أو الدمج المتزامن
+                      TextView tvBatch = new TextView(this);
+                      tvBatch.setText("⚡ تعديل جماعي أو دمج لنطاق خطوات:");
+                      tvBatch.setTextColor(Color.parseColor("#F87171"));
+                      box.addView(tvBatch);
+
+                      LinearLayout rangeRow = new LinearLayout(this);
+                      rangeRow.setOrientation(LinearLayout.HORIZONTAL);
+                      final EditText etFrom = new EditText(this);
+                      etFrom.setHint("من خطوة");
+                      etFrom.setText("1");
+                      etFrom.setInputType(InputType.TYPE_CLASS_NUMBER);
+                      etFrom.setTextColor(Color.WHITE);
+                      etFrom.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+                      final EditText etTo = new EditText(this);
+                      etTo.setHint("إلى خطوة");
+                      etTo.setText(String.valueOf(Math.max(1, steps.size())));
+                      etTo.setInputType(InputType.TYPE_CLASS_NUMBER);
+                      etTo.setTextColor(Color.WHITE);
+                      etTo.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+                      final EditText etNewDelay = new EditText(this);
+                      etNewDelay.setHint("الانتظار ms");
+                      etNewDelay.setText("150");
+                      etNewDelay.setInputType(InputType.TYPE_CLASS_NUMBER);
+                      etNewDelay.setTextColor(Color.WHITE);
+                      etNewDelay.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+                      rangeRow.addView(etFrom);
+                      rangeRow.addView(etTo);
+                      rangeRow.addView(etNewDelay);
+                      box.addView(rangeRow);
+
+                      Button bApplyBatch = createPopupButton("توحيد وقت الانتظار للنطاق المحدد", "#16A34A");
+                      bApplyBatch.setOnClickListener(v -> {
+                          try {
+                              int from = Integer.parseInt(etFrom.getText().toString());
+                              int to = Integer.parseInt(etTo.getText().toString());
+                              int d = Math.max(10, Integer.parseInt(etNewDelay.getText().toString()));
+                              int count = 0;
+                              for (StepItem s : steps) {
+                                  if (s.stepNum >= from && s.stepNum <= to) {
+                                      s.delayMs = d;
+                                      count++;
+                                  }
+                              }
+                              Toast.makeText(this, "تم توحيد التوقيت لـ " + count + " خطوة!", Toast.LENGTH_SHORT).show();
+                              dismissPopup();
+                          } catch (Exception ignored) {}
+                      });
+                      box.addView(bApplyBatch);
+
+                      Button bMergeSim = createPopupButton("⚡ دمج النطاق المحدد ليضرب في نفس اللحظة", "#7C3AED");
+                      bMergeSim.setOnClickListener(v -> {
+                          try {
+                              int from = Integer.parseInt(etFrom.getText().toString());
+                              int to = Integer.parseInt(etTo.getText().toString());
+                              for (StepItem s : steps) {
+                                  if (s.stepNum >= from && s.stepNum <= to) {
+                                      s.stepNum = from;
+                                      if (s.primaryView != null) s.primaryView.invalidate();
+                                      if (s.secondaryView != null) s.secondaryView.invalidate();
+                                  }
+                              }
+                              Toast.makeText(this, "تم دمج الخطوات في اللحظة رقم " + from, Toast.LENGTH_SHORT).show();
+                              dismissPopup();
+                          } catch (Exception ignored) {}
+                      });
+                      box.addView(bMergeSim);
+
+                      // 2. إدراج خطوة في المنتصف
+                      final EditText etInsertAt = createPopupInput(box, "➕ إدراج خطوة جديدة في المنتصف (اكتب رقم مكان الإدراج):", "1", true);
+                      Button bInsertMid = createPopupButton("إدراج خطوة ودفع الأرقام التالية تلقائياً", "#2563EB");
+                      bInsertMid.setOnClickListener(v -> {
+                          try {
+                              int pos = Math.max(1, Integer.parseInt(etInsertAt.getText().toString()));
+                              for (StepItem s : steps) {
+                                  if (s.stepNum >= pos) s.stepNum++;
+                                  if (s.type == StepItem.TYPE_JUMP && s.jumpTargetStep >= pos) s.jumpTargetStep++;
+                              }
+                              dismissPopup();
+                              insertStepAt(pos, StepItem.TYPE_TAP);
+                              Toast.makeText(this, "تم إدراج الخطوة رقم " + pos + " وإزاحة الباقي!", Toast.LENGTH_SHORT).show();
+                          } catch (Exception ignored) {}
+                      });
+                      box.addView(bInsertMid);
+
+                      // 3. قائمة جميع الخطوات الحالية
+                      for (final StepItem s : steps) {
+                          String info = "#" + s.stepNum + " [" + s.getTypeLabel() + "] "
+                              + (s.name.isEmpty() ? "" : "(" + s.name + ") ")
+                              + "انتظار:" + s.delayMs + "ms";
+                          Button bStep = createPopupButton(info, "#374151");
+                          bStep.setOnClickListener(v -> {
+                              dismissPopup();
+                              showEditStepDialog(s);
+                          });
+                          box.addView(bStep);
+                      }
+
+                      showPopupView(box);
+                  }
+
+                  private void showFoldersDialog() {
+                      LinearLayout box = createPopupContainer("📁 المجلدات والسجلات (المجلد: " + currentFolder + ")");
+
+                      // اختيار أو إنشاء مجلد
+                      List<String> folders = StorageManager.getFolderNames(this);
+                      LinearLayout folderRow = new LinearLayout(this);
+                      folderRow.setOrientation(LinearLayout.HORIZONTAL);
+                      for (final String fName : folders) {
+                          Button bf = createPopupButton(fName.equals(currentFolder) ? "📂 " + fName : fName,
+                              fName.equals(currentFolder) ? "#DC2626" : "#374151");
+                          LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                              LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                          lp.setMargins(4, 4, 4, 4);
+                          bf.setLayoutParams(lp);
+                          bf.setOnClickListener(v -> {
+                              currentFolder = fName;
+                              dismissPopup();
+                              showFoldersDialog();
+                          });
+                          folderRow.addView(bf);
+                      }
+                      box.addView(folderRow);
+
+                      final EditText etNewFolder = createPopupInput(box, "إنشاء مجلد جديد (مثال: القرية الليلية / لعبة 2):", "", false);
+                      Button bAddFolder = createPopupButton("+ إضافة مجلد جديد", "#2563EB");
+                      bAddFolder.setOnClickListener(v -> {
+                          String fn = etNewFolder.getText().toString().trim();
+                          if (!fn.isEmpty()) {
+                              StorageManager.addFolder(this, fn);
+                              currentFolder = fn;
+                              dismissPopup();
+                              showFoldersDialog();
+                          }
+                      });
+                      box.addView(bAddFolder);
+
+                      // حفظ الخطوات الحالية كسجل داخل المجلد
+                      final EditText etProfileName = createPopupInput(box, "اسم السجل لحفظ الخطوات الحالية (" + steps.size() + " خطوة):", "", false);
+                      Button bSaveProf = createPopupButton("💾 حفظ السيناريو الحالي في (" + currentFolder + ")", "#16A34A");
+                      bSaveProf.setOnClickListener(v -> {
+                          String pn = etProfileName.getText().toString().trim();
+                          if (pn.isEmpty()) pn = "سيناريو " + (StorageManager.getProfileNames(this, currentFolder).size() + 1);
+                          StorageManager.saveProfile(this, currentFolder, pn, steps);
+                          Toast.makeText(this, "تم حفظ (" + pn + ") بنجاح!", Toast.LENGTH_SHORT).show();
+                          dismissPopup();
+                          showFoldersDialog();
+                      });
+                      box.addView(bSaveProf);
+
+                      // عرض السجلات المحفوظة في المجلد الحالي
+                      List<String> profiles = StorageManager.getProfileNames(this, currentFolder);
+                      for (final String pName : profiles) {
+                          LinearLayout pRow = new LinearLayout(this);
+                          pRow.setOrientation(LinearLayout.HORIZONTAL);
+
+                          Button bLoad = createPopupButton("▶ تحميل: " + pName, "#4B5563");
+                          bLoad.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                          bLoad.setOnClickListener(v -> {
+                              loadScenarioSteps(StorageManager.loadProfile(this, currentFolder, pName));
+                              Toast.makeText(this, "تم تحميل: " + pName, Toast.LENGTH_SHORT).show();
+                              dismissPopup();
+                          });
+
+                          Button bDel = createPopupButton("🗑️", "#991B1B");
+                          LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(110, LinearLayout.LayoutParams.WRAP_CONTENT);
+                          dlp.setMargins(8, 8, 0, 8);
+                          bDel.setLayoutParams(dlp);
+                          bDel.setOnClickListener(v -> {
+                              StorageManager.deleteProfile(this, currentFolder, pName);
+                              dismissPopup();
+                              showFoldersDialog();
+                          });
+
+                          pRow.addView(bLoad);
+                          pRow.addView(bDel);
+                          box.addView(pRow);
+                      }
+
+                      showPopupView(box);
+                  }
+
+                  private void loadScenarioSteps(List<StepItem> loaded) {
+                      for (StepItem old : steps) removeStepViews(old);
+                      steps.clear();
+                      for (StepItem s : loaded) {
+                          createStepViews(s);
+                          steps.add(s);
+                      }
+                      applyVisibilityRules();
+                      updateHudText("Red Clicker | تم تحميل " + steps.size() + " خطوة");
+                  }
+
+                  private List<Integer> getSortedUniqueSteps() {
+                      List<Integer> unique = new ArrayList<>();
+                      for (StepItem s : steps) {
+                          if (!unique.contains(s.stepNum)) unique.add(s.stepNum);
+                      }
+                      Collections.sort(unique);
+                      return unique;
+                  }
+
+                  private void startScenario(int startGroupIdx) {
+                      if (steps.isEmpty()) {
+                          Toast.makeText(this, "أضف خطوات أولاً من زر (+)", Toast.LENGTH_SHORT).show();
+                          return;
+                      }
+                      for (StepItem s : steps) s.currentJumpCount = 0;
+                      isRunning = true;
+                      isPaused = false;
+                      currentGroupIndex = startGroupIdx;
+                      currentLoopCycle = 1;
+                      shrinkHandler.removeCallbacksAndMessages(null);
+                      buildBarLayout.setVisibility(View.GONE);
+                      bubbleView.setVisibility(View.GONE);
+                      playBarLayout.setVisibility(View.VISIBLE);
+                      btnPauseResume.setText("⏸");
+                      setMarkersTouchable(false);
+                      runCurrentGroup();
+                  }
+
+                  private void startScenarioFromStepNum(int stepNum) {
+                      List<Integer> unique = getSortedUniqueSteps();
+                      int idx = unique.indexOf(stepNum);
+                      startScenario(Math.max(0, idx));
+                  }
+
+                  private void togglePauseResume() {
+                      if (!isRunning) return;
+                      isPaused = !isPaused;
+                      btnPauseResume.setText(isPaused ? "▶" : "⏸");
+                      if (isPaused) {
+                          handler.removeCallbacksAndMessages(null);
+                          clearAllHighlights();
+                          updateHudText("مؤقت ⏸ | خطوة " + (currentGroupIndex + 1));
+                      } else {
+                          runCurrentGroup();
+                      }
+                  }
+
+                  private void skipCurrentStep() {
+                      if (!isRunning) return;
+                      handler.removeCallbacksAndMessages(null);
+                      clearAllHighlights();
+                      currentGroupIndex++;
+                      runCurrentGroup();
+                  }
+
+                  private void stopScenario() {
+                      isRunning = false;
+                      isPaused = false;
+                      handler.removeCallbacksAndMessages(null);
+                      clearAllHighlights();
+                      setMarkersTouchable(true);
+                      playBarLayout.setVisibility(View.GONE);
+                      buildBarLayout.setVisibility(View.VISIBLE);
+                      updateHudText("توقف ⏹ | جاهز");
+                      scheduleAutoShrink();
+                  }
+
+                  private void setMarkersTouchable(boolean touchable) {
+                      for (StepItem s : steps) {
+                          int flags = touchable
+                              ? WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                              : (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+                          if (s.primaryView != null && s.primaryParams != null) {
+                              s.primaryParams.flags = flags;
+                              wm.updateViewLayout(s.primaryView, s.primaryParams);
+                          }
+                          if (s.secondaryView != null && s.secondaryParams != null) {
+                              s.secondaryParams.flags = flags;
+                              wm.updateViewLayout(s.secondaryView, s.secondaryParams);
+                          }
+                      }
+                  }
+
+                  private void clearAllHighlights() {
+                      for (StepItem s : steps) {
+                          if (s.primaryView != null) s.primaryView.setHighlighted(false);
+                          if (s.secondaryView != null) s.secondaryView.setHighlighted(false);
+                      }
+                  }
+
+                  private void runCurrentGroup() {
+                      if (!isRunning || isPaused || steps.isEmpty()) return;
+
+                      final List<Integer> uniqueSteps = getSortedUniqueSteps();
+                      if (currentGroupIndex >= uniqueSteps.size()) {
+                          currentGroupIndex = 0;
+                          currentLoopCycle++;
+                          for (StepItem s : steps) s.currentJumpCount = 0;
+                      }
+
+                      final int stepNum = uniqueSteps.get(currentGroupIndex);
+                      final List<StepItem> group = new ArrayList<>();
+                      for (StepItem s : steps) {
+                          if (s.stepNum == stepNum) group.add(s);
+                      }
+
+                      StepItem leader = group.get(0);
+                      updateHudText("خطوة " + stepNum + "/" + uniqueSteps.get(uniqueSteps.size() - 1) + " | دورة " + currentLoopCycle);
+
+                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                      final int randPx = prefs.getInt("def_rand_px", 11);
+                      final int randMs = prefs.getInt("def_rand_ms", 35);
+                      final int randDur = prefs.getInt("def_rand_dur", 15);
+
+                      int waitMs = leader.delayMs;
+                      if (leader.useRandom && randMs > 0) {
+                          waitMs += random.nextInt(randMs * 2 + 1) - randMs;
+                      }
+                      waitMs = Math.max(15, waitMs);
+
+                      handler.postDelayed(() -> {
+                          if (!isRunning || isPaused) return;
+
+                          // إضاءة الخطوة الحالية باللون الأصفر الحي
+                          clearAllHighlights();
+                          for (StepItem s : group) {
+                              if (s.primaryView != null) s.primaryView.setHighlighted(true);
+                              if (s.secondaryView != null) s.secondaryView.setHighlighted(true);
+                          }
+
+                          // التحقق من أمر القفز والتكرار (TYPE_JUMP)
+                          if (leader.type == StepItem.TYPE_JUMP) {
+                              if (leader.currentJumpCount < leader.jumpRepeatCount) {
+                                  leader.currentJumpCount++;
+                                  int targetIdx = uniqueSteps.indexOf(leader.jumpTargetStep);
+                                  currentGroupIndex = (targetIdx >= 0) ? targetIdx : 0;
+                              } else {
+                                  leader.currentJumpCount = 0;
+                                  currentGroupIndex++;
+                              }
+                              handler.postDelayed(this::runCurrentGroup, 60);
+                              return;
+                          }
+
+                          DisplayMetrics dm = getResources().getDisplayMetrics();
+                          int maxW = dm.widthPixels - 2;
+                          int maxH = dm.heightPixels - 2;
+
+                          GestureDescription.Builder builder = new GestureDescription.Builder();
+                          int strokeCount = 0;
+
+                          for (StepItem s : group) {
+                              if (strokeCount >= 10) break;
+
+                              int[] loc1 = new int[2];
+                              s.primaryView.getLocationOnScreen(loc1);
+                              float x1 = loc1[0] + (s.primaryView.getWidth() / 2f);
+                              float y1 = loc1[1] + (s.primaryView.getHeight() / 2f);
+
+                              if (s.useRandom && randPx > 0) {
+                                  x1 += random.nextInt(randPx * 2 + 1) - randPx;
+                                  y1 += random.nextInt(randPx * 2 + 1) - randPx;
+                              }
+                              x1 = Math.max(2f, Math.min(maxW, x1));
+                              y1 = Math.max(2f, Math.min(maxH, y1));
+
+                              int dur = s.durationMs;
+                              if (s.useRandom && randDur > 0) {
+                                  dur += random.nextInt(randDur * 2 + 1) - randDur;
+                              }
+                              dur = Math.max(20, dur);
+
+                              if (s.type == StepItem.TYPE_TAP) {
+                                  Path p = new Path();
+                                  p.moveTo(x1, y1);
+                                  builder.addStroke(new GestureDescription.StrokeDescription(p, 0, dur));
+                                  strokeCount++;
+                              } else if (s.type == StepItem.TYPE_SWIPE && s.secondaryView != null) {
+                                  int[] loc2 = new int[2];
+                                  s.secondaryView.getLocationOnScreen(loc2);
+                                  float x2 = loc2[0] + (s.secondaryView.getWidth() / 2f);
+                                  float y2 = loc2[1] + (s.secondaryView.getHeight() / 2f);
+                                  if (s.useRandom && randPx > 0) {
+                                      x2 += random.nextInt(randPx * 2 + 1) - randPx;
+                                      y2 += random.nextInt(randPx * 2 + 1) - randPx;
+                                  }
+                                  x2 = Math.max(2f, Math.min(maxW, x2));
+                                  y2 = Math.max(2f, Math.min(maxH, y2));
+
+                                  Path p = new Path();
+                                  p.moveTo(x1, y1);
+                                  p.lineTo(x2, y2);
+                                  builder.addStroke(new GestureDescription.StrokeDescription(p, 0, Math.max(80, dur)));
+                                  strokeCount++;
+                              } else if ((s.type == StepItem.TYPE_ZOOM_OUT || s.type == StepItem.TYPE_ZOOM_IN) && s.secondaryView != null && strokeCount <= 8) {
+                                  int[] loc2 = new int[2];
+                                  s.secondaryView.getLocationOnScreen(loc2);
+                                  float x2 = Math.max(2f, Math.min(maxW, loc2[0] + (s.secondaryView.getWidth() / 2f)));
+                                  float y2 = Math.max(2f, Math.min(maxH, loc2[1] + (s.secondaryView.getHeight() / 2f)));
+
+                                  float midX = (x1 + x2) / 2f;
+                                  float midY = (y1 + y2) / 2f;
+                                  float innerX1 = midX + (x1 - midX) * 0.28f;
+                                  float innerY1 = midY + (y1 - midY) * 0.28f;
+                                  float innerX2 = midX + (x2 - midX) * 0.28f;
+                                  float innerY2 = midY + (y2 - midY) * 0.28f;
+
+                                  Path p1 = new Path();
+                                  Path p2 = new Path();
+                                  if (s.type == StepItem.TYPE_ZOOM_OUT) {
+                                      // تصغير القرية: الأصبعان يقتربان نحو المركز
+                                      p1.moveTo(x1, y1);
+                                      p1.lineTo(innerX1, innerY1);
+                                      p2.moveTo(x2, y2);
+                                      p2.lineTo(innerX2, innerY2);
+                                  } else {
+                                      // تكبير القرية: الأصبعان يبتعدان من المركز للخارج
+                                      p1.moveTo(innerX1, innerY1);
+                                      p1.lineTo(x1, y1);
+                                      p2.moveTo(innerX2, innerY2);
+                                      p2.lineTo(x2, y2);
+                                  }
+                                  int zDur = Math.max(120, dur);
+                                  builder.addStroke(new GestureDescription.StrokeDescription(p1, 0, zDur));
+                                  builder.addStroke(new GestureDescription.StrokeDescription(p2, 0, zDur));
+                                  strokeCount += 2;
+                              }
+                          }
+
+                          dispatchGesture(builder.build(), new GestureResultCallback() {
+                              @Override
+                              public void onCompleted(GestureDescription gestureDescription) {
+                                  clearAllHighlights();
+                                  currentGroupIndex++;
+                                  runCurrentGroup();
+                              }
+                              @Override
+                              public void onCancelled(GestureDescription gestureDescription) {
+                                  clearAllHighlights();
+                                  currentGroupIndex++;
+                                  runCurrentGroup();
+                              }
+                          }, null);
+                      }, waitMs);
+                  }
+
+                  private LinearLayout createPopupContainer(String titleText) {
+                      LinearLayout box = new LinearLayout(this);
+                      box.setOrientation(LinearLayout.VERTICAL);
+                      box.setPadding(30, 28, 30, 28);
+                      GradientDrawable bg = new GradientDrawable();
+                      bg.setColor(Color.parseColor("#F218181B"));
+                      bg.setCornerRadius(26f);
+                      bg.setStroke(3, Color.parseColor("#DC2626"));
+                      box.setBackground(bg);
+
+                      TextView title = new TextView(this);
+                      title.setText(titleText);
+                      title.setTextColor(Color.WHITE);
+                      title.setTextSize(15);
+                      title.getPaint().setFakeBoldText(true);
+                      title.setPadding(0, 0, 0, 16);
+                      box.addView(title);
+                      return box;
+                  }
+
+                  private EditText createPopupInput(LinearLayout parent, String label, String val, boolean numeric) {
+                      TextView tv = new TextView(this);
+                      tv.setText(label);
+                      tv.setTextColor(Color.parseColor("#D4D4D8"));
+                      tv.setTextSize(12);
+                      tv.setPadding(0, 10, 0, 4);
+                      parent.addView(tv);
+
+                      EditText et = new EditText(this);
+                      if (numeric) et.setInputType(InputType.TYPE_CLASS_NUMBER);
+                      et.setText(val);
+                      et.setTextColor(Color.WHITE);
+                      et.setBackgroundColor(Color.parseColor("#27272A"));
+                      et.setPadding(18, 12, 18, 12);
+                      parent.addView(et);
+                      return et;
+                  }
+
+                  private Button createPopupButton(String text, String colorHex) {
+                      Button b = new Button(this);
+                      b.setText(text);
+                      b.setTextColor(Color.WHITE);
+                      b.setTextSize(13);
+                      GradientDrawable bg = new GradientDrawable();
+                      bg.setColor(Color.parseColor(colorHex));
+                      bg.setCornerRadius(16f);
+                      b.setBackground(bg);
+                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                      lp.setMargins(0, 8, 0, 6);
+                      b.setLayoutParams(lp);
+                      return b;
+                  }
+
+                  private void showPopupView(LinearLayout contentBox) {
+                      dismissPopup();
+                      Button bClose = createPopupButton("إغلاق النافذة", "#52525B");
+                      bClose.setOnClickListener(v -> dismissPopup());
+                      contentBox.addView(bClose);
+
+                      ScrollView scroll = new ScrollView(this);
+                      scroll.addView(contentBox);
+
+                      DisplayMetrics dm = getResources().getDisplayMetrics();
+                      WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                          (int) (dm.widthPixels * 0.88f),
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                          WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+                          PixelFormat.TRANSLUCENT);
+                      lp.dimAmount = 0.55f;
+                      lp.gravity = Gravity.CENTER;
+
+                      activePopupDialog = scroll;
+                      wm.addView(activePopupDialog, lp);
+                  }
+
+                  private void dismissPopup() {
+                      if (activePopupDialog != null) {
+                          try { wm.removeView(activePopupDialog); } catch (Exception ignored) {}
+                          activePopupDialog = null;
+                      }
+                  }
+
+                  private void closeAll() {
+                      stopScenario();
+                      dismissPopup();
+                      if (freezeOverlayView != null) {
+                          try { wm.removeView(freezeOverlayView); } catch (Exception ignored) {}
+                          freezeOverlayView = null;
+                          isGameTouchFrozen = false;
+                      }
+                      for (StepItem s : steps) removeStepViews(s);
+                      steps.clear();
+                      if (hudView != null) {
+                          try { wm.removeView(hudView); } catch (Exception ignored) {}
+                          hudView = null;
+                      }
+                      if (rootBarContainer != null) {
+                          try { wm.removeView(rootBarContainer); } catch (Exception ignored) {}
+                          rootBarContainer = null;
+                      }
+                  }
+
+                  @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
+                  @Override public void onInterrupt() {}
+              }
+          """)
+          PYEOF
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build Debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RedAutoClicker-v2-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish APK to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.${{ github.run_number }}
+          name: "Red Auto Clicker v2.0 #${{ github.run_number }}"
+          files: app/build/outputs/apk/debug/app-debug.apk
