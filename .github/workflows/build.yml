@@ -2046,7 +2046,7 @@ jobs:
                           PixelFormat.TRANSLUCENT);
                   }
               }
-          """
+          """)
           write_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
               package com.smartclicker.app;
 
