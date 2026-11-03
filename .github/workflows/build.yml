@@ -25,18 +25,18 @@ jobs:
         run: |
           rm -rf app build.gradle settings.gradle
           python3 - << 'PYEOF'
-          import os, textwrap
+          import os
 
           def write_file(path, content):
-              d = os.path.dirname(path)
-              if d:
-                  os.makedirs(d, exist_ok=True)
-              with open(path, 'w', encoding='utf-8') as f:
-                  f.write(textwrap.dedent(content).strip() + "\n")
+            d = os.path.dirname(path)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content.strip() + "\n")
 
           def append_file(path, content):
-              with open(path, 'a', encoding='utf-8') as f:
-                  f.write("\n" + textwrap.dedent(content).strip() + "\n")
+            with open(path, 'a', encoding='utf-8') as f:
+                f.write("\n" + content.strip() + "\n")
 
           write_file("settings.gradle", r"""
               pluginManagement {
