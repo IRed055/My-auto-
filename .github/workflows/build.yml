@@ -3370,7 +3370,7 @@ jobs:
                                       } else {
                                           item.condAX1 = ax; item.condAY1 = ay;
                                           item.condAX2 = bx; item.condAY2 = by;
-                                      }
+                                          }
                                       showConditionDialog(item);
                                   }
                                   @Override
