@@ -1212,658 +1212,933 @@ jobs:
           """)
           # --- نهاية الجزء الثاني (2/5) ---
           write_file("app/src/main/java/com/smartclicker/app/VisionHelper.java", r"""
-              package com.smartclicker.app;
-              import android.content.Context;
-              import android.graphics.Bitmap;
-              import android.graphics.Canvas;
-              import android.graphics.Color;
-              import android.graphics.Paint;
-              import android.graphics.Path;
-              import android.graphics.PixelFormat;
-              import android.graphics.Rect;
-              import android.graphics.RectF;
-              import android.graphics.drawable.GradientDrawable;
-              import android.util.DisplayMetrics;
-              import android.view.Gravity;
-              import android.view.MotionEvent;
-              import android.view.View;
-              import android.view.WindowManager;
-              import android.widget.Button;
-              import android.widget.FrameLayout;
-              import android.widget.LinearLayout;
-              import android.widget.TextView;
-              public class VisionHelper {
-                  public interface ColorPickCallback {
-                      void onPicked(int x, int y, int color);
-                      void onCancel();
-                  }
-                  public interface AreaPickCallback {
-                      void onPicked(int cx, int cy, int boxW, int boxH, int centerColor, String gridSignature);
-                      void onCancel();
-                  }
-                  public interface RulerPickCallback {
-                      void onPicked(int ax, int ay, int bx, int by);
-                      void onCancel();
-                  }
-                  public static boolean evaluateStep(StepItem s, Bitmap bmp) {
-                      if (bmp == null) return false;
-                      boolean resA = evaluateSingleSub(bmp, s.condAMode, s.condAX1, s.condAY1, s.condAX2, s.condAY2,
-                          s.condABoxW, s.condABoxH, s.condAColor, s.condAGrid, s.condATol, s.condAAreaPct, s.condABarPct);
-                      if (s.condLogic == 0) return resA;
-                      boolean resB = evaluateSingleSub(bmp, s.condBMode, s.condBX1, s.condBY1, s.condBX2, s.condBY2,
-                          s.condBBoxW, s.condBBoxH, s.condBColor, s.condBGrid, s.condBTol, s.condBAreaPct, s.condBBarPct);
-                      if (s.condLogic == 1) return resA && resB;
-                      return resA || resB;
-                  }
-                  public static boolean evaluateSingleSub(Bitmap bmp, int mode, int x1, int y1, int x2, int y2,
-                                                          int boxW, int boxH, int targetColor, String gridSig,
-                                                          int tolPct, int reqAreaPct, int reqBarPct) {
-                      if (mode == 0) {
-                          int c = getSafePixel(bmp, x1, y1);
-                          return colorSimilarityPct(c, targetColor) >= tolPct;
-                      } else if (mode == 1) {
-                          int matchPct = estimateAreaMatchPct(bmp, x1, y1, boxW, boxH, targetColor, gridSig, tolPct);
-                          return matchPct >= reqAreaPct;
-                      } else {
-                          int fillPct = estimateBarFillPct(bmp, x1, y1, x2, y2, targetColor, tolPct);
-                          return fillPct >= reqBarPct;
-                      }
-                  }
-                  public static String buildGridSignature(Bitmap bmp, int cx, int cy, int boxW, int boxH) {
-                      if (bmp == null) return "";
-                      int halfW = Math.max(10, boxW / 2);
-                      int halfH = Math.max(10, boxH / 2);
-                      StringBuilder sb = new StringBuilder();
-                      for (int row = 0; row < 5; row++) {
-                          for (int col = 0; col < 5; col++) {
-                              int px = (cx - halfW) + (col * boxW / 4);
-                              int py = (cy - halfH) + (row * boxH / 4);
-                              int c = getSafePixel(bmp, px, py);
-                              if (sb.length() > 0) sb.append(",");
-                              sb.append(c);
-                          }
-                      }
-                      return sb.toString();
-                  }
-                  public static int estimateAreaMatchPct(Bitmap bmp, int cx, int cy, int boxW, int boxH,
-                                                         int fallbackColor, String gridSig, int tolPct) {
-                      if (bmp == null) return 0;
-                      int halfW = Math.max(10, boxW / 2);
-                      int halfH = Math.max(10, boxH / 2);
-                      if (gridSig != null && !gridSig.isEmpty()) {
-                          String[] parts = gridSig.split(",");
-                          if (parts.length == 25) {
-                              int matched = 0;
-                              int idx = 0;
-                              for (int row = 0; row < 5; row++) {
-                                  for (int col = 0; col < 5; col++) {
-                                      int px = (cx - halfW) + (col * boxW / 4);
-                                      int py = (cy - halfH) + (row * boxH / 4);
-                                      int curC = getSafePixel(bmp, px, py);
-                                      int savedC = fallbackColor;
-                                      try { savedC = Integer.parseInt(parts[idx]); } catch (Exception ignored) {}
-                                      if (colorSimilarityPct(curC, savedC) >= tolPct) matched++;
-                                      idx++;
-                                  }
-                              }
-                              return (matched * 100) / 25;
-                          }
-                      }
-                      int matched = 0, total = 0;
-                      int stepX = Math.max(2, boxW / 6);
-                      int stepY = Math.max(2, boxH / 6);
-                      for (int dx = -halfW; dx <= halfW; dx += stepX) {
-                          for (int dy = -halfH; dy <= halfH; dy += stepY) {
-                              int c = getSafePixel(bmp, cx + dx, cy + dy);
-                              if (colorSimilarityPct(c, fallbackColor) >= tolPct) matched++;
-                              total++;
-                          }
-                      }
-                      return total == 0 ? 0 : (matched * 100 / total);
-                  }
-                  public static int estimateBarFillPct(Bitmap bmp, int ax, int ay, int bx, int by, int fillColor, int tolPct) {
-                      if (bmp == null) return 0;
-                      int matchedCount = 0;
-                      int furthestContiguousPct = 0;
-                      int missStreak = 0;
-                      for (int i = 1; i <= 100; i++) {
-                          float ratio = i / 100f;
-                          int px = Math.round(ax + (bx - ax) * ratio);
-                          int py = Math.round(ay + (by - ay) * ratio);
-                          int c = getSafePixel(bmp, px, py);
-                          if (colorSimilarityPct(c, fillColor) >= tolPct) {
-                              matchedCount++;
-                              if (missStreak <= 6) {
-                                  furthestContiguousPct = i;
-                              }
-                              missStreak = 0;
-                          } else {
-                              missStreak++;
-                          }
-                      }
-                      return Math.max(matchedCount, furthestContiguousPct);
-                  }
-                  public static int getSafePixel(Bitmap bmp, int x, int y) {
-                      if (bmp == null || bmp.isRecycled()) return Color.BLACK;
-                      int sx = Math.max(0, Math.min(bmp.getWidth() - 1, x));
-                      int sy = Math.max(0, Math.min(bmp.getHeight() - 1, y));
-                      return bmp.getPixel(sx, sy);
-                  }
-                  public static int colorSimilarityPct(int c1, int c2) {
-                      int dr = Math.abs(Color.red(c1) - Color.red(c2));
-                      int dg = Math.abs(Color.green(c1) - Color.green(c2));
-                      int db = Math.abs(Color.blue(c1) - Color.blue(c2));
-                      double diff = (dr + dg + db) / (255.0 * 3.0);
-                      return (int) Math.round((1.0 - diff) * 100.0);
-                  }
-                  private static DisplayMetrics getRealScreenMetrics(Context ctx, WindowManager wm, Bitmap bmp) {
-                      DisplayMetrics dm = new DisplayMetrics();
-                      try {
-                          wm.getDefaultDisplay().getRealMetrics(dm);
-                      } catch (Exception e) {
-                          dm = ctx.getResources().getDisplayMetrics();
-                      }
-                      if (bmp != null && !bmp.isRecycled()) {
-                          dm.widthPixels = bmp.getWidth();
-                          dm.heightPixels = bmp.getHeight();
-                      }
-                      return dm;
-                  }
-                  private static void autoDodgeCapsule(LinearLayout capsule, boolean[] isAtTop, int touchY, int screenH) {
-                      if (!isAtTop[0] && touchY > screenH * 0.68f) {
-                          isAtTop[0] = true;
-                          FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) capsule.getLayoutParams();
-                          lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-                          lp.topMargin = 18;
-                          lp.bottomMargin = 0;
-                          capsule.setLayoutParams(lp);
-                      } else if (isAtTop[0] && touchY < screenH * 0.32f) {
-                          isAtTop[0] = false;
-                          FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) capsule.getLayoutParams();
-                          lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-                          lp.bottomMargin = 18;
-                          lp.topMargin = 0;
-                          capsule.setLayoutParams(lp);
-                      }
-                  }
-                  private static LinearLayout createFloatingCapsule(Context ctx) {
-                      LinearLayout bar = new LinearLayout(ctx);
-                      bar.setOrientation(LinearLayout.HORIZONTAL);
-                      bar.setGravity(Gravity.CENTER_VERTICAL);
-                      bar.setPadding(16, 10, 16, 10);
-                      GradientDrawable bg = new GradientDrawable();
-                      bg.setColor(Color.parseColor("#E818181B"));
-                      bg.setCornerRadius(28f);
-                      bg.setStroke(2, Color.parseColor("#52525B"));
-                      bar.setBackgroundDrawable(bg);
-                      return bar;
-                  }
-                  private static void addCapsuleTransparencyToggle(Context ctx, final LinearLayout capsule, final boolean[] isAtTop) {
-                      final boolean[] lowAlpha = new boolean[]{false};
-                      Button bEye = createActionBtn(ctx, "👁", "#3F3F46");
-                      bEye.setOnClickListener(v -> {
-                          lowAlpha[0] = !lowAlpha[0];
-                          capsule.setAlpha(lowAlpha[0] ? 0.22f : 1.0f);
-                      });
-                      bEye.setOnLongClickListener(v -> {
-                          isAtTop[0] = !isAtTop[0];
-                          FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) capsule.getLayoutParams();
-                          lp.gravity = (isAtTop[0] ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL;
-                          lp.topMargin = isAtTop[0] ? 18 : 0;
-                          lp.bottomMargin = isAtTop[0] ? 0 : 18;
-                          capsule.setLayoutParams(lp);
-                          return true;
-                      });
-                      capsule.addView(bEye);
-                  }
-                  private static void drawFloatingLoupe(Canvas canvas, Bitmap bmp, int targetX, int targetY,
-                                                        int screenW, int screenH, boolean compactMode, Paint p) {
-                      int radius = compactMode ? 74 : 94;
-                      int offsetX = -150;
-                      int offsetY = -150;
-                      if (targetX + offsetX - radius < 20) offsetX = 150;
-                      if (targetY + offsetY - radius < 25) offsetY = 150;
-                      if (targetX + offsetX + radius > screenW - 20) offsetX = -150;
-                      if (targetY + offsetY + radius + 55 > screenH - 25) offsetY = -150;
-                      int lx = Math.max(radius + 15, Math.min(screenW - radius - 15, targetX + offsetX));
-                      int ly = Math.max(radius + 15, Math.min(screenH - radius - 60, targetY + offsetY));
-                      p.setStyle(Paint.Style.STROKE);
-                      p.setStrokeWidth(3f);
-                      p.setColor(Color.parseColor("#38BDF8"));
-                      canvas.drawLine(targetX, targetY, lx, ly, p);
-                      RectF lensRect = new RectF(lx - radius, ly - radius, lx + radius, ly + radius);
-                      p.setStyle(Paint.Style.FILL);
-                      p.setColor(Color.parseColor("#F218181B"));
-                      canvas.drawRoundRect(lensRect, 24f, 24f, p);
-                      if (bmp != null && !bmp.isRecycled()) {
-                          int sampleHalf = compactMode ? 14 : 18;
-                          Rect src = new Rect(
-                              Math.max(0, targetX - sampleHalf),
-                              Math.max(0, targetY - sampleHalf),
-                              Math.min(bmp.getWidth(), targetX + sampleHalf),
-                              Math.min(bmp.getHeight(), targetY + sampleHalf)
-                          );
-                          Rect dst = new Rect(lx - radius + 6, ly - radius + 6, lx + radius - 6, ly + radius - 6);
-                          canvas.drawBitmap(bmp, src, dst, null);
-                      }
-                      p.setStyle(Paint.Style.STROKE);
-                      p.setStrokeWidth(3.5f);
-                      p.setColor(Color.WHITE);
-                      canvas.drawRoundRect(lensRect, 24f, 24f, p);
-                      p.setStrokeWidth(2.5f);
-                      p.setColor(Color.parseColor("#EF4444"));
-                      canvas.drawLine(lx - 22, ly, lx + 22, ly, p);
-                      canvas.drawLine(lx, ly - 22, lx, ly + 22, p);
-                      canvas.drawRect(lx - 5, ly - 5, lx + 5, ly + 5, p);
-                      int liveColor = getSafePixel(bmp, targetX, targetY);
-                      RectF badgeRect = new RectF(lx - radius, ly + radius + 6, lx + radius, ly + radius + 48);
-                      p.setStyle(Paint.Style.FILL);
-                      p.setColor(Color.parseColor("#EE18181B"));
-                      canvas.drawRoundRect(badgeRect, 12f, 12f, p);
-                      RectF swatchRect = new RectF(lx - radius + 6, ly + radius + 11, lx - radius + 46, ly + radius + 43);
-                      p.setColor(liveColor);
-                      canvas.drawRoundRect(swatchRect, 8f, 8f, p);
-                      p.setStyle(Paint.Style.STROKE);
-                      p.setStrokeWidth(2f);
-                      p.setColor(Color.WHITE);
-                      canvas.drawRoundRect(swatchRect, 8f, 8f, p);
-                      p.setStyle(Paint.Style.FILL);
-                      p.setColor(Color.WHITE);
-                      p.setTextSize(compactMode ? 16f : 18f);
-                      String hex = String.format("#%06X", (0xFFFFFF & liveColor));
-                      canvas.drawText(hex, lx - radius + 54, ly + radius + 34, p);
-                  }
-                  public static View showLoupePicker(final Context ctx, final WindowManager wm, final Bitmap screenBmp,
-                                                     int initX, int initY, final String titleHint, final ColorPickCallback cb) {
-                      final DisplayMetrics dm = getRealScreenMetrics(ctx, wm, screenBmp);
-                      final int sw = dm.widthPixels, sh = dm.heightPixels;
-                      final int[] pos = new int[]{
-                          Math.max(5, Math.min(sw - 5, initX)),
-                          Math.max(5, Math.min(sh - 5, initY))
-                      };
-                      final FrameLayout root = new FrameLayout(ctx);
-                      final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-                      final View liveSwatchBox = new View(ctx);
-                      final TextView tvLiveHex = new TextView(ctx);
-                      final LinearLayout capsule = createFloatingCapsule(ctx);
-                      final boolean[] isAtTop = new boolean[]{false};
-                      final Runnable updateBottomPreview = () -> {
-                          int c = getSafePixel(screenBmp, pos[0], pos[1]);
-                          GradientDrawable gd = new GradientDrawable();
-                          gd.setColor(c);
-                          gd.setCornerRadius(10f);
-                          gd.setStroke(2, Color.WHITE);
-                          liveSwatchBox.setBackgroundDrawable(gd);
-                          tvLiveHex.setText(String.format("#%06X (%d,%d)", (0xFFFFFF & c), pos[0], pos[1]));
-                      };
-                      final View canvasView = new View(ctx) {
-                          @Override
-                          protected void onDraw(Canvas canvas) {
-                              super.onDraw(canvas);
-                              if (screenBmp != null && !screenBmp.isRecycled()) {
-                                  canvas.drawBitmap(screenBmp, 0, 0, null);
-                              }
-                              int tx = pos[0], ty = pos[1];
-                              p.setStyle(Paint.Style.STROKE);
-                              p.setStrokeWidth(4f);
-                              p.setColor(Color.BLACK);
-                              canvas.drawCircle(tx, ty, 24f, p);
-                              p.setStrokeWidth(2.5f);
-                              p.setColor(Color.YELLOW);
-                              canvas.drawCircle(tx, ty, 24f, p);
-                              canvas.drawLine(tx - 34, ty, tx + 34, ty, p);
-                              canvas.drawLine(tx, ty - 34, tx, ty + 34, p);
-                              drawFloatingLoupe(canvas, screenBmp, tx, ty, sw, sh, false, p);
-                          }
-                      };
-                      canvasView.setOnTouchListener((v, e) -> {
-                          if (e.getAction() == MotionEvent.ACTION_DOWN || e.getAction() == MotionEvent.ACTION_MOVE) {
-                              pos[0] = Math.max(2, Math.min(sw - 2, (int) e.getRawX()));
-                              pos[1] = Math.max(2, Math.min(sh - 2, (int) e.getRawY()));
-                              autoDodgeCapsule(capsule, isAtTop, pos[1], sh);
-                              updateBottomPreview.run();
-                              canvasView.invalidate();
-                              return true;
-                          }
-                          return false;
-                      });
-                      root.addView(canvasView, new FrameLayout.LayoutParams(
-                          FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-                      LinearLayout.LayoutParams swLp = new LinearLayout.LayoutParams(54, 48);
-                      swLp.setMargins(0, 0, 10, 0);
-                      liveSwatchBox.setLayoutParams(swLp);
-                      capsule.addView(liveSwatchBox);
-                      tvLiveHex.setTextColor(Color.WHITE);
-                      tvLiveHex.setTextSize(12);
-                      tvLiveHex.setPadding(0, 0, 10, 0);
-                      capsule.addView(tvLiveHex);
-                      updateBottomPreview.run();
-                      addCapsuleTransparencyToggle(ctx, capsule, isAtTop);
-                      Button bOk = createActionBtn(ctx, "✅ اعتماد", "#16A34A");
-                      bOk.setOnClickListener(v -> {
-                          int c = getSafePixel(screenBmp, pos[0], pos[1]);
-                          try { wm.removeView(root); } catch (Exception ignored) {}
-                          cb.onPicked(pos[0], pos[1], c);
-                      });
-                      capsule.addView(bOk);
-                      Button bCancel = createActionBtn(ctx, "❌ إلغاء", "#991B1B");
-                      bCancel.setOnClickListener(v -> {
-                          try { wm.removeView(root); } catch (Exception ignored) {}
-                          cb.onCancel();
-                      });
-                      capsule.addView(bCancel);
-                      FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
-                          FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                          Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-                      capLp.bottomMargin = 18;
-                      root.addView(capsule, capLp);
-                      autoDodgeCapsule(capsule, isAtTop, pos[1], sh);
-                      wm.addView(root, createOverlayParams());
-                      return root;
-                  }
-                  public static View showAreaBoxPicker(final Context ctx, final WindowManager wm, final Bitmap screenBmp,
-                                                       int initCX, int initCY, int initW, int initH, final AreaPickCallback cb) {
-                      final DisplayMetrics dm = getRealScreenMetrics(ctx, wm, screenBmp);
-                      final int sw = dm.widthPixels, sh = dm.heightPixels;
-                      int startW = Math.max(36, Math.min(450, initW));
-                      int startH = Math.max(36, Math.min(450, initH));
-                      final RectF box = new RectF(
-                          Math.max(10, initCX - startW / 2f),
-                          Math.max(10, initCY - startH / 2f),
-                          Math.min(sw - 10, initCX + startW / 2f),
-                          Math.min(sh - 10, initCY + startH / 2f)
-                      );
-                      final FrameLayout root = new FrameLayout(ctx);
-                      final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-                      final int[] activeTouch = new int[]{0, 0, 0};
-                      final LinearLayout capsule = createFloatingCapsule(ctx);
-                      final boolean[] isAtTop = new boolean[]{false};
-                      final View canvasView = new View(ctx) {
-                          @Override
-                          protected void onDraw(Canvas canvas) {
-                              super.onDraw(canvas);
-                              if (screenBmp != null && !screenBmp.isRecycled()) {
-                                  canvas.drawBitmap(screenBmp, 0, 0, null);
-                              }
-                              p.setStyle(Paint.Style.FILL);
-                              p.setColor(Color.argb(145, 0, 0, 0));
-                              canvas.drawRect(0, 0, sw, box.top, p);
-                              canvas.drawRect(0, box.bottom, sw, sh, p);
-                              canvas.drawRect(0, box.top, box.left, box.bottom, p);
-                              canvas.drawRect(box.right, box.top, sw, box.bottom, p);
-                              p.setStyle(Paint.Style.STROKE);
-                              p.setStrokeWidth(3.5f);
-                              p.setColor(Color.parseColor("#38BDF8"));
-                              canvas.drawRect(box, p);
-                              float cx = box.centerX(), cy = box.centerY();
-                              p.setStrokeWidth(2f);
-                              p.setColor(Color.YELLOW);
-                              canvas.drawLine(cx - 14, cy, cx + 14, cy, p);
-                              canvas.drawLine(cx, cy - 14, cx, cy + 14, p);
-                              p.setStyle(Paint.Style.FILL);
-                              p.setColor(Color.WHITE);
-                              float hr = 14f;
-                              canvas.drawCircle(box.left, box.top, hr, p);
-                              canvas.drawCircle(box.right, box.top, hr, p);
-                              canvas.drawCircle(box.left, box.bottom, hr, p);
-                              canvas.drawCircle(box.right, box.bottom, hr, p);
-                              if (activeTouch[0] > 0) {
-                                  drawFloatingLoupe(canvas, screenBmp, activeTouch[1], activeTouch[2], sw, sh, true, p);
-                              }
-                          }
-                      };
-                      canvasView.setOnTouchListener(new View.OnTouchListener() {
-                          float lastX, lastY;
-                          @Override
-                          public boolean onTouch(View v, MotionEvent e) {
-                              float x = e.getRawX(), y = e.getRawY();
-                              if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                                  lastX = x; lastY = y;
-                                  if (dist(x, y, box.left, box.top) < 55) activeTouch[0] = 2;
-                                  else if (dist(x, y, box.right, box.top) < 55) activeTouch[0] = 3;
-                                  else if (dist(x, y, box.left, box.bottom) < 55) activeTouch[0] = 4;
-                                  else if (dist(x, y, box.right, box.bottom) < 55) activeTouch[0] = 5;
-                                  else activeTouch[0] = 1;
-                                  activeTouch[1] = (int) x; activeTouch[2] = (int) y;
-                                  autoDodgeCapsule(capsule, isAtTop, (int) y, sh);
-                                  canvasView.invalidate();
-                                  return true;
-                              } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                                  float dx = x - lastX, dy = y - lastY;
-                                  lastX = x; lastY = y;
-                                  if (activeTouch[0] == 1) {
-                                      box.offset(dx, dy);
-                                      activeTouch[1] = (int) box.centerX();
-                                      activeTouch[2] = (int) box.centerY();
-                                  } else if (activeTouch[0] == 2) {
-                                      box.left = Math.min(box.right - 24, box.left + dx);
-                                      box.top = Math.min(box.bottom - 24, box.top + dy);
-                                      activeTouch[1] = (int) box.left; activeTouch[2] = (int) box.top;
-                                  } else if (activeTouch[0] == 3) {
-                                      box.right = Math.max(box.left + 24, box.right + dx);
-                                      box.top = Math.min(box.bottom - 24, box.top + dy);
-                                      activeTouch[1] = (int) box.right; activeTouch[2] = (int) box.top;
-                                  } else if (activeTouch[0] == 4) {
-                                      box.left = Math.min(box.right - 24, box.left + dx);
-                                      box.bottom = Math.max(box.top + 24, box.bottom + dy);
-                                      activeTouch[1] = (int) box.left; activeTouch[2] = (int) box.bottom;
-                                  } else if (activeTouch[0] == 5) {
-                                      box.right = Math.max(box.left + 24, box.right + dx);
-                                      box.bottom = Math.max(box.top + 24, box.bottom + dy);
-                                      activeTouch[1] = (int) box.right; activeTouch[2] = (int) box.bottom;
-                                  }
-                                  autoDodgeCapsule(capsule, isAtTop, (int) box.bottom, sh);
-                                  canvasView.invalidate();
-                                  return true;
-                              } else if (e.getAction() == MotionEvent.ACTION_UP) {
-                                  activeTouch[0] = 0;
-                                  canvasView.invalidate();
-                                  return true;
-                              }
-                              return false;
-                          }
-                      });
-                      root.addView(canvasView, new FrameLayout.LayoutParams(
-                          FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-                      TextView tvHint = new TextView(ctx);
-                      tvHint.setText("حرّك المربع وزواياه ");
-                      tvHint.setTextColor(Color.WHITE);
-                      tvHint.setTextSize(12);
-                      capsule.addView(tvHint);
-                      addCapsuleTransparencyToggle(ctx, capsule, isAtTop);
-                      Button bOk = createActionBtn(ctx, "✅ اعتماد المنطقة", "#16A34A");
-                      bOk.setOnClickListener(v -> {
-                          int cx = (int) box.centerX();
-                          int cy = (int) box.centerY();
-                          int bw = Math.max(24, (int) box.width());
-                          int bh = Math.max(24, (int) box.height());
-                          int cCol = getSafePixel(screenBmp, cx, cy);
-                          String sig = buildGridSignature(screenBmp, cx, cy, bw, bh);
-                          try { wm.removeView(root); } catch (Exception ignored) {}
-                          cb.onPicked(cx, cy, bw, bh, cCol, sig);
-                      });
-                      capsule.addView(bOk);
-                      Button bCancel = createActionBtn(ctx, "❌ إلغاء", "#991B1B");
-                      bCancel.setOnClickListener(v -> {
-                          try { wm.removeView(root); } catch (Exception ignored) {}
-                          cb.onCancel();
-                      });
-                      capsule.addView(bCancel);
-                      FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
-                          FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                          Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-                      capLp.bottomMargin = 18;
-                      root.addView(capsule, capLp);
-                      autoDodgeCapsule(capsule, isAtTop, (int) box.bottom, sh);
-                      wm.addView(root, createOverlayParams());
-                      return root;
-                  }
-                  public static View showBarRulerPicker(final Context ctx, final WindowManager wm, final Bitmap screenBmp,
-                                                        int initAX, int initAY, int initBX, int initBY, final RulerPickCallback cb) {
-                      final DisplayMetrics dm = getRealScreenMetrics(ctx, wm, screenBmp);
-                      final int sw = dm.widthPixels, sh = dm.heightPixels;
-                      final int[] ptA = new int[]{Math.max(15, Math.min(sw - 15, initAX)), Math.max(15, Math.min(sh - 15, initAY))};
-                      final int[] ptB = new int[]{Math.max(15, Math.min(sw - 15, initBX)), Math.max(15, Math.min(sh - 15, initBY))};
-                      if (Math.abs(ptA[0] - ptB[0]) < 20 && Math.abs(ptA[1] - ptB[1]) < 20) {
-                          ptB[0] = Math.min(sw - 30, ptA[0] + 220);
-                      }
-                      final int[] draggingWhich = new int[]{0};
-                      final LinearLayout capsule = createFloatingCapsule(ctx);
-                      final boolean[] isAtTop = new boolean[]{false};
-                      final FrameLayout root = new FrameLayout(ctx);
-                      final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-                      final View canvasView = new View(ctx) {
-                          @Override
-                          protected void onDraw(Canvas canvas) {
-                              super.onDraw(canvas);
-                              if (screenBmp != null && !screenBmp.isRecycled()) {
-                                  canvas.drawBitmap(screenBmp, 0, 0, null);
-                              }
-                              float ax = ptA[0], ay = ptA[1], bx = ptB[0], by = ptB[1];
-                              p.setStyle(Paint.Style.STROKE);
-                              p.setStrokeWidth(4.5f);
-                              p.setColor(Color.argb(200, 0, 0, 0));
-                              canvas.drawLine(ax, ay, bx, by, p);
-                              p.setStrokeWidth(2.8f);
-                              p.setColor(Color.parseColor("#38BDF8"));
-                              canvas.drawLine(ax, ay, bx, by, p);
-                              for (int i = 1; i <= 9; i++) {
-                                  float r = i / 10f;
-                                  float tx = ax + (bx - ax) * r;
-                                  float ty = ay + (by - ay) * r;
-                                  p.setStyle(Paint.Style.FILL);
-                                  p.setColor(i == 5 ? Color.YELLOW : Color.WHITE);
-                                  canvas.drawCircle(tx, ty, i == 5 ? 5.5f : 3.5f, p);
-                              }
-                              drawDirectionArrow(canvas, ax, ay, ax + (bx - ax) * 0.35f, ay + (by - ay) * 0.35f, 18f, p);
-                              drawDirectionArrow(canvas, ax, ay, ax + (bx - ax) * 0.70f, ay + (by - ay) * 0.70f, 18f, p);
-                              drawRulerKnob(canvas, ax, ay, "A (0%)", Color.parseColor("#10B981"), p);
-                              drawRulerKnob(canvas, bx, by, "B (100%)", Color.parseColor("#F59E0B"), p);
-                              if (draggingWhich[0] == 1) {
-                                  drawFloatingLoupe(canvas, screenBmp, ptA[0], ptA[1], sw, sh, true, p);
-                              } else if (draggingWhich[0] == 2) {
-                                  drawFloatingLoupe(canvas, screenBmp, ptB[0], ptB[1], sw, sh, true, p);
-                              }
-                          }
-                      };
-                      canvasView.setOnTouchListener((v, e) -> {
-                          float x = e.getRawX(), y = e.getRawY();
-                          if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                              float dA = dist(x, y, ptA[0], ptA[1]);
-                              float dB = dist(x, y, ptB[0], ptB[1]);
-                              draggingWhich[0] = (dA <= dB) ? 1 : 2;
-                              int cx = Math.max(2, Math.min(sw - 2, (int) x));
-                              int cy = Math.max(2, Math.min(sh - 2, (int) y));
-                              if (draggingWhich[0] == 1) { ptA[0] = cx; ptA[1] = cy; }
-                              else { ptB[0] = cx; ptB[1] = cy; }
-                              autoDodgeCapsule(capsule, isAtTop, cy, sh);
-                              canvasView.invalidate();
-                              return true;
-                          } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                              int cx = Math.max(2, Math.min(sw - 2, (int) x));
-                              int cy = Math.max(2, Math.min(sh - 2, (int) y));
-                              if (draggingWhich[0] == 1) { ptA[0] = cx; ptA[1] = cy; }
-                              else if (draggingWhich[0] == 2) { ptB[0] = cx; ptB[1] = cy; }
-                              autoDodgeCapsule(capsule, isAtTop, cy, sh);
-                              canvasView.invalidate();
-                              return true;
-                          } else if (e.getAction() == MotionEvent.ACTION_UP) {
-                              draggingWhich[0] = 0;
-                              canvasView.invalidate();
-                              return true;
-                          }
-                          return false;
-                      });
-                      root.addView(canvasView, new FrameLayout.LayoutParams(
-                          FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-                      TextView tvHint = new TextView(ctx);
-                      tvHint.setText("اسحب A(0%) و B(100%) ");
-                      tvHint.setTextColor(Color.WHITE);
-                      tvHint.setTextSize(12);
-                      capsule.addView(tvHint);
-                      addCapsuleTransparencyToggle(ctx, capsule, isAtTop);
-                      Button bOk = createActionBtn(ctx, "✅ اعتماد المسطرة", "#16A34A");
-                      bOk.setOnClickListener(v -> {
-                          try { wm.removeView(root); } catch (Exception ignored) {}
-                          cb.onPicked(ptA[0], ptA[1], ptB[0], ptB[1]);
-                      });
-                      capsule.addView(bOk);
-                      Button bCancel = createActionBtn(ctx, "❌ إلغاء", "#991B1B");
-                      bCancel.setOnClickListener(v -> {
-                          try { wm.removeView(root); } catch (Exception ignored) {}
-                          cb.onCancel();
-                      });
-                      capsule.addView(bCancel);
-                      FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
-                          FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                          Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-                      capLp.bottomMargin = 18;
-                      root.addView(capsule, capLp);
-                      autoDodgeCapsule(capsule, isAtTop, Math.max(ptA[1], ptB[1]), sh);
-                      wm.addView(root, createOverlayParams());
-                      return root;
-                  }
-                  private static void drawRulerKnob(Canvas canvas, float x, float y, String label, int color, Paint p) {
-                      p.setStyle(Paint.Style.FILL);
-                      p.setColor(Color.argb(65, Color.red(color), Color.green(color), Color.blue(color)));
-                      canvas.drawCircle(x, y, 34f, p);
-                      p.setStyle(Paint.Style.STROKE);
-                      p.setStrokeWidth(4f);
-                      p.setColor(color);
-                      canvas.drawCircle(x, y, 34f, p);
-                      p.setStrokeWidth(2.5f);
-                      p.setColor(Color.WHITE);
-                      canvas.drawLine(x - 14, y, x + 14, y, p);
-                      canvas.drawLine(x, y - 14, x, y + 14, p);
-                      RectF tag = new RectF(x - 42, y - 64, x + 42, y - 38);
-                      p.setStyle(Paint.Style.FILL);
-                      p.setColor(Color.parseColor("#DD18181B"));
-                      canvas.drawRoundRect(tag, 8f, 8f, p);
-                      p.setColor(Color.WHITE);
-                      p.setTextSize(15f);
-                      p.setTextAlign(Paint.Align.CENTER);
-                      canvas.drawText(label, x, y - 46, p);
-                      p.setTextAlign(Paint.Align.LEFT);
-                  }
-                  private static void drawDirectionArrow(Canvas canvas, float fx, float fy, float tx, float ty, float sz, Paint p) {
-                      double ang = Math.atan2(ty - fy, tx - fx);
-                      Path path = new Path();
-                      path.moveTo(tx, ty);
-                      path.lineTo((float) (tx - sz * Math.cos(ang - Math.PI / 6)), (float) (ty - sz * Math.sin(ang - Math.PI / 6)));
-                      path.lineTo((float) (tx - sz * Math.cos(ang + Math.PI / 6)), (float) (ty - sz * Math.sin(ang + Math.PI / 6)));
-                      path.close();
-                      p.setStyle(Paint.Style.FILL);
-                      p.setColor(Color.parseColor("#38BDF8"));
-                      canvas.drawPath(path, p);
-                  }
-                  private static float dist(float x1, float y1, float x2, float y2) {
-                      return (float) Math.hypot(x1 - x2, y1 - y2);
-                  }
-                  private static Button createActionBtn(Context ctx, String text, String hex) {
-                      Button b = new Button(ctx);
-                      b.setText(text);
-                      b.setTextColor(Color.WHITE);
-                      b.setTextSize(11);
-                      b.setPadding(18, 8, 18, 8);
-                      GradientDrawable bg = new GradientDrawable();
-                      bg.setColor(Color.parseColor(hex));
-                      bg.setCornerRadius(16f);
-                      b.setBackgroundDrawable(bg);
-                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                      lp.setMargins(6, 0, 0, 0);
-                      b.setLayoutParams(lp);
-                      return b;
-                  }
-                  private static WindowManager.LayoutParams createOverlayParams() {
-                      return new WindowManager.LayoutParams(
-                          WindowManager.LayoutParams.MATCH_PARENT,
-                          WindowManager.LayoutParams.MATCH_PARENT,
-                          WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                          PixelFormat.TRANSLUCENT);
-                  }
-              }
+             package com.smartclicker.app;
+             import android.content.Context;
+             import android.graphics.Bitmap;
+             import android.graphics.Canvas;
+             import android.graphics.Color;
+             import android.graphics.ColorMatrix;
+             import android.graphics.ColorMatrixColorFilter;
+             import android.graphics.Paint;
+             import android.graphics.Path;
+             import android.graphics.PixelFormat;
+             import android.graphics.Rect;
+             import android.graphics.RectF;
+             import android.graphics.drawable.GradientDrawable;
+             import android.os.Handler;
+             import android.os.Looper;
+             import android.util.DisplayMetrics;
+             import android.view.Gravity;
+             import android.view.MotionEvent;
+             import android.view.View;
+             import android.view.WindowManager;
+             import android.widget.Button;
+             import android.widget.FrameLayout;
+             import android.widget.LinearLayout;
+             import android.widget.TextView;
+             import com.google.mlkit.vision.common.InputImage;
+             import com.google.mlkit.vision.text.TextRecognition;
+             import com.google.mlkit.vision.text.TextRecognizer;
+             import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+             import java.util.regex.Matcher;
+             import java.util.regex.Pattern;
+             public class VisionHelper {
+                 public interface ColorPickCallback {
+                     void onPicked(int x, int y, int color);
+                     void onCancel();
+                 }
+                 public interface AreaPickCallback {
+                     void onPicked(int cx, int cy, int boxW, int boxH, int centerColor, String gridSignature);
+                     void onCancel();
+                 }
+                 public interface RulerPickCallback {
+                     void onPicked(int ax, int ay, int bx, int by);
+                     void onCancel();
+                 }
+                 public interface OcrPickCallback {
+                     void onPicked(int cx, int cy, int boxW, int boxH);
+                     void onCancel();
+                 }
+                 public interface OcrEvalCallback {
+                     void onResult(boolean isMatch, long readValue);
+                 }
+                 private static final TextRecognizer textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                 public static void evaluateStepAsync(final StepItem s, final Bitmap bmp, final OcrEvalCallback callback) {
+                     if (bmp == null) { callback.onResult(false, -1); return; }
+                     boolean isAModeOcr = (s.condAMode == 3);
+                     boolean isBModeOcr = (s.condBMode == 3);
+                     if (!isAModeOcr && !isBModeOcr) {
+                         boolean res = evaluateStepSync(s, bmp);
+                         callback.onResult(res, -1);
+                         return;
+                     }
+                     evaluateSubAsync(s, false, s.condAMode, bmp, (resA, valA) -> {
+                         if (s.condLogic == 0 || !isBModeOcr) {
+                             boolean resB = false;
+                             if (s.condLogic > 0) {
+                                 resB = evaluateSingleSub(bmp, s.condBMode, s.condBX1, s.condBY1, s.condBX2, s.condBY2,
+                                     s.condBBoxW, s.condBBoxH, s.condBColor, s.condBGrid, s.condBTol, s.condBAreaPct, s.condBBarPct);
+                             }
+                             boolean finalRes = (s.condLogic == 0) ? resA : ((s.condLogic == 1) ? (resA && resB) : (resA || resB));
+                             callback.onResult(finalRes, valA);
+                             return;
+                         }
+                         evaluateSubAsync(s, true, s.condBMode, bmp, (resB, valB) -> {
+                             boolean finalRes;
+                             if (s.condLogic == 1) finalRes = resA && resB;
+                             else if (s.condLogic == 2) finalRes = resA || resB;
+                             else finalRes = resA;
+                             callback.onResult(finalRes, valA);
+                         });
+                     });
+                 }
+                 private interface SubEvalCallback { void onResult(boolean res, long val); }
+                 private static void evaluateSubAsync(StepItem s, boolean isB, int mode, Bitmap bmp, final SubEvalCallback cb) {
+                     if (mode != 3) {
+                         boolean res = evaluateSingleSub(bmp, mode, 
+                             isB ? s.condBX1 : s.condAX1, isB ? s.condBY1 : s.condAY1,
+                             isB ? s.condBX2 : s.condAX2, isB ? s.condBY2 : s.condAY2,
+                             isB ? s.condBBoxW : s.condABoxW, isB ? s.condBBoxH : s.condABoxH,
+                             isB ? s.condBColor : s.condAColor, isB ? s.condBGrid : s.condAGrid,
+                             isB ? s.condBTol : s.condATol, isB ? s.condBAreaPct : s.condAAreaPct,
+                             isB ? s.condBBarPct : s.condABarPct);
+                         cb.onResult(res, -1);
+                         return;
+                     }
+                     int cx = isB ? s.condBOcrCx : s.condAOcrCx;
+                     int cy = isB ? s.condBOcrCy : s.condAOcrCy;
+                     int w = isB ? s.condBOcrW : s.condAOcrW;
+                     int h = isB ? s.condBOcrH : s.condAOcrH;
+                     String expectedStr = isB ? s.condBOcrExpected : s.condAOcrExpected;
+                     int op = isB ? s.condBOcrOperator : s.condAOcrOperator;
+                     performOcr(bmp, cx, cy, w, h, (readStr) -> {
+                         if (readStr == null || readStr.isEmpty()) { cb.onResult(false, -1); return; }
+                         long expectedVal = 0;
+                         try { expectedVal = Long.parseLong(expectedStr.replaceAll("[^0-9]", "")); } catch (Exception ignored) {}
+                         long actualVal = 0;
+                         try { actualVal = Long.parseLong(readStr); } catch (Exception ignored) {}
+                         boolean match = false;
+                         if (op == 0) match = actualVal >= expectedVal;
+                         else if (op == 1) match = actualVal > expectedVal;
+                         else if (op == 2) match = actualVal == expectedVal;
+                         else if (op == 3) match = actualVal <= expectedVal;
+                         else if (op == 4) match = actualVal < expectedVal;
+                         else if (op == 5) match = actualVal != expectedVal;
+                         cb.onResult(match, actualVal);
+                     });
+                 }
+                 private interface OcrTextCallback { void onResult(String text); }
+                 private static void performOcr(Bitmap fullBmp, int cx, int cy, int boxW, int boxH, final OcrTextCallback cb) {
+                     try {
+                         int halfW = Math.max(10, boxW / 2);
+                         int halfH = Math.max(10, boxH / 2);
+                         int left = Math.max(0, cx - halfW);
+                         int top = Math.max(0, cy - halfH);
+                         int right = Math.min(fullBmp.getWidth(), cx + halfW);
+                         int bottom = Math.min(fullBmp.getHeight(), cy + halfH);
+                         if (right <= left || bottom <= top) { cb.onResult(""); return; }
+                         Bitmap cropped = Bitmap.createBitmap(fullBmp, left, top, right - left, bottom - top);
+                         Bitmap processed = preprocessForOcr(cropped);
+                         cropped.recycle();
+                         InputImage image = InputImage.fromBitmap(processed, 0);
+                         textRecognizer.process(image)
+                             .addOnSuccessListener(text -> {
+                                 processed.recycle();
+                                 String rawText = text.getText();
+                                 String cleanText = rawText.replaceAll("[^0-9]", "");
+                                 if (cleanText.isEmpty()) { cb.onResult(""); return; }
+                                 Pattern p = Pattern.compile("\\d+");
+                                 Matcher m = p.matcher(rawText);
+                                 long maxVal = -1;
+                                 while (m.find()) {
+                                     try {
+                                         long v = Long.parseLong(m.group());
+                                         if (v > maxVal) maxVal = v;
+                                     } catch (Exception ignored) {}
+                                 }
+                                 cb.onResult(maxVal >= 0 ? String.valueOf(maxVal) : "");
+                             })
+                             .addOnFailureListener(e -> {
+                                 processed.recycle();
+                                 cb.onResult("");
+                             });
+                     } catch (Exception e) {
+                         cb.onResult("");
+                     }
+                 }
+                 private static Bitmap preprocessForOcr(Bitmap src) {
+                     Bitmap gray = Bitmap.createBitmap(src.getWidth(), src.getHeight(), Bitmap.Config.ARGB_8888);
+                     Canvas c = new Canvas(gray);
+                     Paint p = new Paint();
+                     ColorMatrix cm = new ColorMatrix();
+                     cm.setSaturation(0);
+                     p.setColorFilter(new ColorMatrixColorFilter(cm));
+                     c.drawBitmap(src, 0, 0, p);
+                     int w = gray.getWidth(), h = gray.getHeight();
+                     int[] pixels = new int[w * h];
+                     gray.getPixels(pixels, 0, w, 0, 0, w, h);
+                     for (int i = 0; i < pixels.length; i++) {
+                         int r = Color.red(pixels[i]);
+                         int g = Color.green(pixels[i]);
+                         int b = Color.blue(pixels[i]);
+                         int lum = (int)(0.299 * r + 0.587 * g + 0.114 * b);
+                         pixels[i] = (lum > 140) ? Color.WHITE : Color.BLACK;
+                     }
+                     gray.setPixels(pixels, 0, w, 0, 0, w, h);
+                     return gray;
+                 }
+                 public static boolean evaluateStepSync(StepItem s, Bitmap bmp) {
+                     if (bmp == null) return false;
+                     boolean resA = evaluateSingleSub(bmp, s.condAMode, s.condAX1, s.condAY1, s.condAX2, s.condAY2,
+                         s.condABoxW, s.condABoxH, s.condAColor, s.condAGrid, s.condATol, s.condAAreaPct, s.condABarPct);
+                     if (s.condLogic == 0) return resA;
+                     boolean resB = evaluateSingleSub(bmp, s.condBMode, s.condBX1, s.condBY1, s.condBX2, s.condBY2,
+                         s.condBBoxW, s.condBBoxH, s.condBColor, s.condBGrid, s.condBTol, s.condBAreaPct, s.condBBarPct);
+                     if (s.condLogic == 1) return resA && resB;
+                     return resA || resB;
+                 }
+                 public static boolean evaluateSingleSub(Bitmap bmp, int mode, int x1, int y1, int x2, int y2,
+                                                         int boxW, int boxH, int targetColor, String gridSig,
+                                                         int tolPct, int reqAreaPct, int reqBarPct) {
+                     if (mode == 0) {
+                         int c = getSafePixel(bmp, x1, y1);
+                         return colorSimilarityPct(c, targetColor) >= tolPct;
+                     } else if (mode == 1) {
+                         int matchPct = estimateAreaMatchPct(bmp, x1, y1, boxW, boxH, targetColor, gridSig, tolPct);
+                         return matchPct >= reqAreaPct;
+                     } else if (mode == 2) {
+                         int fillPct = estimateBarFillPct(bmp, x1, y1, x2, y2, targetColor, tolPct);
+                         return fillPct >= reqBarPct;
+                     }
+                     return false;
+                 }
+                 public static String buildGridSignature(Bitmap bmp, int cx, int cy, int boxW, int boxH) {
+                     if (bmp == null) return "";
+                     int halfW = Math.max(10, boxW / 2);
+                     int halfH = Math.max(10, boxH / 2);
+                     StringBuilder sb = new StringBuilder();
+                     for (int row = 0; row < 5; row++) {
+                         for (int col = 0; col < 5; col++) {
+                             int px = (cx - halfW) + (col * boxW / 4);
+                             int py = (cy - halfH) + (row * boxH / 4);
+                             int c = getSafePixel(bmp, px, py);
+                             if (sb.length() > 0) sb.append(",");
+                             sb.append(c);
+                         }
+                     }
+                     return sb.toString();
+                 }
+                 public static int estimateAreaMatchPct(Bitmap bmp, int cx, int cy, int boxW, int boxH,
+                                                        int fallbackColor, String gridSig, int tolPct) {
+                     if (bmp == null) return 0;
+                     int halfW = Math.max(10, boxW / 2);
+                     int halfH = Math.max(10, boxH / 2);
+                     if (gridSig != null && !gridSig.isEmpty()) {
+                         String[] parts = gridSig.split(",");
+                         if (parts.length == 25) {
+                             int matched = 0;
+                             int idx = 0;
+                             for (int row = 0; row < 5; row++) {
+                                 for (int col = 0; col < 5; col++) {
+                                     int px = (cx - halfW) + (col * boxW / 4);
+                                     int py = (cy - halfH) + (row * boxH / 4);
+                                     int curC = getSafePixel(bmp, px, py);
+                                     int savedC = fallbackColor;
+                                     try { savedC = Integer.parseInt(parts[idx]); } catch (Exception ignored) {}
+                                     if (colorSimilarityPct(curC, savedC) >= tolPct) matched++;
+                                     idx++;
+                                 }
+                             }
+                             return (matched * 100) / 25;
+                         }
+                     }
+                     int matched = 0, total = 0;
+                     int stepX = Math.max(2, boxW / 6);
+                     int stepY = Math.max(2, boxH / 6);
+                     for (int dx = -halfW; dx <= halfW; dx += stepX) {
+                         for (int dy = -halfH; dy <= halfH; dy += stepY) {
+                             int c = getSafePixel(bmp, cx + dx, cy + dy);
+                             if (colorSimilarityPct(c, fallbackColor) >= tolPct) matched++;
+                             total++;
+                         }
+                     }
+                     return total == 0 ? 0 : (matched * 100 / total);
+                 }
+                 public static int estimateBarFillPct(Bitmap bmp, int ax, int ay, int bx, int by, int fillColor, int tolPct) {
+                     if (bmp == null) return 0;
+                     int matchedCount = 0;
+                     int furthestContiguousPct = 0;
+                     int missStreak = 0;
+                     for (int i = 1; i <= 100; i++) {
+                         float ratio = i / 100f;
+                         int px = Math.round(ax + (bx - ax) * ratio);
+                         int py = Math.round(ay + (by - ay) * ratio);
+                         int c = getSafePixel(bmp, px, py);
+                         if (colorSimilarityPct(c, fillColor) >= tolPct) {
+                             matchedCount++;
+                             if (missStreak <= 6) {
+                                 furthestContiguousPct = i;
+                             }
+                             missStreak = 0;
+                         } else {
+                             missStreak++;
+                         }
+                     }
+                     return Math.max(matchedCount, furthestContiguousPct);
+                 }
+                 public static int getSafePixel(Bitmap bmp, int x, int y) {
+                     if (bmp == null || bmp.isRecycled()) return Color.BLACK;
+                     int sx = Math.max(0, Math.min(bmp.getWidth() - 1, x));
+                     int sy = Math.max(0, Math.min(bmp.getHeight() - 1, y));
+                     return bmp.getPixel(sx, sy);
+                 }
+                 public static int colorSimilarityPct(int c1, int c2) {
+                     int dr = Math.abs(Color.red(c1) - Color.red(c2));
+                     int dg = Math.abs(Color.green(c1) - Color.green(c2));
+                     int db = Math.abs(Color.blue(c1) - Color.blue(c2));
+                     double diff = (dr + dg + db) / (255.0 * 3.0);
+                     return (int) Math.round((1.0 - diff) * 100.0);
+                 }
+                 private static DisplayMetrics getRealScreenMetrics(Context ctx, WindowManager wm, Bitmap bmp) {
+                     DisplayMetrics dm = new DisplayMetrics();
+                     try {
+                         wm.getDefaultDisplay().getRealMetrics(dm);
+                     } catch (Exception e) {
+                         dm = ctx.getResources().getDisplayMetrics();
+                     }
+                     if (bmp != null && !bmp.isRecycled()) {
+                         dm.widthPixels = bmp.getWidth();
+                         dm.heightPixels = bmp.getHeight();
+                     }
+                     return dm;
+                 }
+                 private static void autoDodgeCapsule(LinearLayout capsule, boolean[] isAtTop, int touchY, int screenH) {
+                     if (!isAtTop[0] && touchY > screenH * 0.68f) {
+                         isAtTop[0] = true;
+                         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) capsule.getLayoutParams();
+                         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                         lp.topMargin = 18;
+                         lp.bottomMargin = 0;
+                         capsule.setLayoutParams(lp);
+                     } else if (isAtTop[0] && touchY < screenH * 0.32f) {
+                         isAtTop[0] = false;
+                         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) capsule.getLayoutParams();
+                         lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                         lp.bottomMargin = 18;
+                         lp.topMargin = 0;
+                         capsule.setLayoutParams(lp);
+                     }
+                 }
+                 private static LinearLayout createFloatingCapsule(Context ctx) {
+                     LinearLayout bar = new LinearLayout(ctx);
+                     bar.setOrientation(LinearLayout.HORIZONTAL);
+                     bar.setGravity(Gravity.CENTER_VERTICAL);
+                     bar.setPadding(16, 10, 16, 10);
+                     GradientDrawable bg = new GradientDrawable();
+                     bg.setColor(Color.parseColor("#E818181B"));
+                     bg.setCornerRadius(28f);
+                     bg.setStroke(2, Color.parseColor("#52525B"));
+                     bar.setBackgroundDrawable(bg);
+                     return bar;
+                 }
+                 private static void addCapsuleTransparencyToggle(Context ctx, final LinearLayout capsule, final boolean[] isAtTop) {
+                     final boolean[] lowAlpha = new boolean[]{false};
+                     Button bEye = createActionBtn(ctx, "👁", "#3F3F46");
+                     bEye.setOnClickListener(v -> {
+                         lowAlpha[0] = !lowAlpha[0];
+                         capsule.setAlpha(lowAlpha[0] ? 0.22f : 1.0f);
+                     });
+                     bEye.setOnLongClickListener(v -> {
+                         isAtTop[0] = !isAtTop[0];
+                         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) capsule.getLayoutParams();
+                         lp.gravity = (isAtTop[0] ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL;
+                         lp.topMargin = isAtTop[0] ? 18 : 0;
+                         lp.bottomMargin = isAtTop[0] ? 0 : 18;
+                         capsule.setLayoutParams(lp);
+                         return true;
+                     });
+                     capsule.addView(bEye);
+                 }
+                 private static void drawFloatingLoupe(Canvas canvas, Bitmap bmp, int targetX, int targetY,
+                                                       int screenW, int screenH, boolean compactMode, Paint p) {
+                     int radius = compactMode ? 74 : 94;
+                     int offsetX = -150;
+                     int offsetY = -150;
+                     if (targetX + offsetX - radius < 20) offsetX = 150;
+                     if (targetY + offsetY - radius < 25) offsetY = 150;
+                     if (targetX + offsetX + radius > screenW - 20) offsetX = -150;
+                     if (targetY + offsetY + radius + 55 > screenH - 25) offsetY = -150;
+                     int lx = Math.max(radius + 15, Math.min(screenW - radius - 15, targetX + offsetX));
+                     int ly = Math.max(radius + 15, Math.min(screenH - radius - 60, targetY + offsetY));
+                     p.setStyle(Paint.Style.STROKE);
+                     p.setStrokeWidth(3f);
+                     p.setColor(Color.parseColor("#38BDF8"));
+                     canvas.drawLine(targetX, targetY, lx, ly, p);
+                     RectF lensRect = new RectF(lx - radius, ly - radius, lx + radius, ly + radius);
+                     p.setStyle(Paint.Style.FILL);
+                     p.setColor(Color.parseColor("#F218181B"));
+                     canvas.drawRoundRect(lensRect, 24f, 24f, p);
+                     if (bmp != null && !bmp.isRecycled()) {
+                         int sampleHalf = compactMode ? 14 : 18;
+                         Rect src = new Rect(
+                             Math.max(0, targetX - sampleHalf),
+                             Math.max(0, targetY - sampleHalf),
+                             Math.min(bmp.getWidth(), targetX + sampleHalf),
+                             Math.min(bmp.getHeight(), targetY + sampleHalf)
+                         );
+                         Rect dst = new Rect(lx - radius + 6, ly - radius + 6, lx + radius - 6, ly + radius - 6);
+                         canvas.drawBitmap(bmp, src, dst, null);
+                     }
+                     p.setStyle(Paint.Style.STROKE);
+                     p.setStrokeWidth(3.5f);
+                     p.setColor(Color.WHITE);
+                     canvas.drawRoundRect(lensRect, 24f, 24f, p);
+                     p.setStrokeWidth(2.5f);
+                     p.setColor(Color.parseColor("#EF4444"));
+                     canvas.drawLine(lx - 22, ly, lx + 22, ly, p);
+                     canvas.drawLine(lx, ly - 22, lx, ly + 22, p);
+                     canvas.drawRect(lx - 5, ly - 5, lx + 5, ly + 5, p);
+                     int liveColor = getSafePixel(bmp, targetX, targetY);
+                     RectF badgeRect = new RectF(lx - radius, ly + radius + 6, lx + radius, ly + radius + 48);
+                     p.setStyle(Paint.Style.FILL);
+                     p.setColor(Color.parseColor("#EE18181B"));
+                     canvas.drawRoundRect(badgeRect, 12f, 12f, p);
+                     RectF swatchRect = new RectF(lx - radius + 6, ly + radius + 11, lx - radius + 46, ly + radius + 43);
+                     p.setColor(liveColor);
+                     canvas.drawRoundRect(swatchRect, 8f, 8f, p);
+                     p.setStyle(Paint.Style.STROKE);
+                     p.setStrokeWidth(2f);
+                     p.setColor(Color.WHITE);
+                     canvas.drawRoundRect(swatchRect, 8f, 8f, p);
+                     p.setStyle(Paint.Style.FILL);
+                     p.setColor(Color.WHITE);
+                     p.setTextSize(compactMode ? 16f : 18f);
+                     String hex = String.format("#%06X", (0xFFFFFF & liveColor));
+                     canvas.drawText(hex, lx - radius + 54, ly + radius + 34, p);
+                 }
+                 public static View showLoupePicker(final Context ctx, final WindowManager wm, final Bitmap screenBmp,
+                                                    int initX, int initY, final String titleHint, final ColorPickCallback cb) {
+                     final DisplayMetrics dm = getRealScreenMetrics(ctx, wm, screenBmp);
+                     final int sw = dm.widthPixels, sh = dm.heightPixels;
+                     final int[] pos = new int[]{
+                         Math.max(5, Math.min(sw - 5, initX)),
+                         Math.max(5, Math.min(sh - 5, initY))
+                     };
+                     final FrameLayout root = new FrameLayout(ctx);
+                     final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                     final View liveSwatchBox = new View(ctx);
+                     final TextView tvLiveHex = new TextView(ctx);
+                     final LinearLayout capsule = createFloatingCapsule(ctx);
+                     final boolean[] isAtTop = new boolean[]{false};
+                     final Runnable updateBottomPreview = () -> {
+                         int c = getSafePixel(screenBmp, pos[0], pos[1]);
+                         GradientDrawable gd = new GradientDrawable();
+                         gd.setColor(c);
+                         gd.setCornerRadius(10f);
+                         gd.setStroke(2, Color.WHITE);
+                         liveSwatchBox.setBackgroundDrawable(gd);
+                         tvLiveHex.setText(String.format("#%06X (%d,%d)", (0xFFFFFF & c), pos[0], pos[1]));
+                     };
+                     final View canvasView = new View(ctx) {
+                         @Override
+                         protected void onDraw(Canvas canvas) {
+                             super.onDraw(canvas);
+                             if (screenBmp != null && !screenBmp.isRecycled()) {
+                                 canvas.drawBitmap(screenBmp, 0, 0, null);
+                             }
+                             int tx = pos[0], ty = pos[1];
+                             p.setStyle(Paint.Style.STROKE);
+                             p.setStrokeWidth(4f);
+                             p.setColor(Color.BLACK);
+                             canvas.drawCircle(tx, ty, 24f, p);
+                             p.setStrokeWidth(2.5f);
+                             p.setColor(Color.YELLOW);
+                             canvas.drawCircle(tx, ty, 24f, p);
+                             canvas.drawLine(tx - 34, ty, tx + 34, ty, p);
+                             canvas.drawLine(tx, ty - 34, tx, ty + 34, p);
+                             drawFloatingLoupe(canvas, screenBmp, tx, ty, sw, sh, false, p);
+                         }
+                     };
+                     canvasView.setOnTouchListener((v, e) -> {
+                         if (e.getAction() == MotionEvent.ACTION_DOWN || e.getAction() == MotionEvent.ACTION_MOVE) {
+                             pos[0] = Math.max(2, Math.min(sw - 2, (int) e.getRawX()));
+                             pos[1] = Math.max(2, Math.min(sh - 2, (int) e.getRawY()));
+                             autoDodgeCapsule(capsule, isAtTop, pos[1], sh);
+                             updateBottomPreview.run();
+                             canvasView.invalidate();
+                             return true;
+                         }
+                         return false;
+                     });
+                     root.addView(canvasView, new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                     LinearLayout.LayoutParams swLp = new LinearLayout.LayoutParams(54, 48);
+                     swLp.setMargins(0, 0, 10, 0);
+                     liveSwatchBox.setLayoutParams(swLp);
+                     capsule.addView(liveSwatchBox);
+                     tvLiveHex.setTextColor(Color.WHITE);
+                     tvLiveHex.setTextSize(12);
+                     tvLiveHex.setPadding(0, 0, 10, 0);
+                     capsule.addView(tvLiveHex);
+                     updateBottomPreview.run();
+                     addCapsuleTransparencyToggle(ctx, capsule, isAtTop);
+                     Button bOk = createActionBtn(ctx, "✅ اعتماد", "#16A34A");
+                     bOk.setOnClickListener(v -> {
+                         int c = getSafePixel(screenBmp, pos[0], pos[1]);
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onPicked(pos[0], pos[1], c);
+                     });
+                     capsule.addView(bOk);
+                     Button bCancel = createActionBtn(ctx, "❌ إلغاء", "#991B1B");
+                     bCancel.setOnClickListener(v -> {
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onCancel();
+                     });
+                     capsule.addView(bCancel);
+                     FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                         Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+                     capLp.bottomMargin = 18;
+                     root.addView(capsule, capLp);
+                     autoDodgeCapsule(capsule, isAtTop, pos[1], sh);
+                     wm.addView(root, createOverlayParams());
+                     return root;
+                 }
+                 public static View showAreaBoxPicker(final Context ctx, final WindowManager wm, final Bitmap screenBmp,
+                                                      int initCX, int initCY, int initW, int initH, final AreaPickCallback cb) {
+                     final DisplayMetrics dm = getRealScreenMetrics(ctx, wm, screenBmp);
+                     final int sw = dm.widthPixels, sh = dm.heightPixels;
+                     int startW = Math.max(36, Math.min(450, initW));
+                     int startH = Math.max(36, Math.min(450, initH));
+                     final RectF box = new RectF(
+                         Math.max(10, initCX - startW / 2f),
+                         Math.max(10, initCY - startH / 2f),
+                         Math.min(sw - 10, initCX + startW / 2f),
+                         Math.min(sh - 10, initCY + startH / 2f)
+                     );
+                     final FrameLayout root = new FrameLayout(ctx);
+                     final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                     final int[] activeTouch = new int[]{0, 0, 0};
+                     final LinearLayout capsule = createFloatingCapsule(ctx);
+                     final boolean[] isAtTop = new boolean[]{false};
+                     final View canvasView = new View(ctx) {
+                         @Override
+                         protected void onDraw(Canvas canvas) {
+                             super.onDraw(canvas);
+                             if (screenBmp != null && !screenBmp.isRecycled()) {
+                                 canvas.drawBitmap(screenBmp, 0, 0, null);
+                             }
+                             p.setStyle(Paint.Style.FILL);
+                             p.setColor(Color.argb(145, 0, 0, 0));
+                             canvas.drawRect(0, 0, sw, box.top, p);
+                             canvas.drawRect(0, box.bottom, sw, sh, p);
+                             canvas.drawRect(0, box.top, box.left, box.bottom, p);
+                             canvas.drawRect(box.right, box.top, sw, box.bottom, p);
+                             p.setStyle(Paint.Style.STROKE);
+                             p.setStrokeWidth(3.5f);
+                             p.setColor(Color.parseColor("#38BDF8"));
+                             canvas.drawRect(box, p);
+                             float cx = box.centerX(), cy = box.centerY();
+                             p.setStrokeWidth(2f);
+                             p.setColor(Color.YELLOW);
+                             canvas.drawLine(cx - 14, cy, cx + 14, cy, p);
+                             canvas.drawLine(cx, cy - 14, cx, cy + 14, p);
+                             p.setStyle(Paint.Style.FILL);
+                             p.setColor(Color.WHITE);
+                             float hr = 14f;
+                             canvas.drawCircle(box.left, box.top, hr, p);
+                             canvas.drawCircle(box.right, box.top, hr, p);
+                             canvas.drawCircle(box.left, box.bottom, hr, p);
+                             canvas.drawCircle(box.right, box.bottom, hr, p);
+                             if (activeTouch[0] > 0) {
+                                 drawFloatingLoupe(canvas, screenBmp, activeTouch[1], activeTouch[2], sw, sh, true, p);
+                             }
+                         }
+                     };
+                     canvasView.setOnTouchListener(new View.OnTouchListener() {
+                         float lastX, lastY;
+                         @Override
+                         public boolean onTouch(View v, MotionEvent e) {
+                             float x = e.getRawX(), y = e.getRawY();
+                             if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                 lastX = x; lastY = y;
+                                 if (dist(x, y, box.left, box.top) < 55) activeTouch[0] = 2;
+                                 else if (dist(x, y, box.right, box.top) < 55) activeTouch[0] = 3;
+                                 else if (dist(x, y, box.left, box.bottom) < 55) activeTouch[0] = 4;
+                                 else if (dist(x, y, box.right, box.bottom) < 55) activeTouch[0] = 5;
+                                 else activeTouch[0] = 1;
+                                 activeTouch[1] = (int) x; activeTouch[2] = (int) y;
+                                 autoDodgeCapsule(capsule, isAtTop, (int) y, sh);
+                                 canvasView.invalidate();
+                                 return true;
+                             } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                 float dx = x - lastX, dy = y - lastY;
+                                 lastX = x; lastY = y;
+                                 if (activeTouch[0] == 1) {
+                                     box.offset(dx, dy);
+                                     activeTouch[1] = (int) box.centerX();
+                                     activeTouch[2] = (int) box.centerY();
+                                 } else if (activeTouch[0] == 2) {
+                                     box.left = Math.min(box.right - 24, box.left + dx);
+                                     box.top = Math.min(box.bottom - 24, box.top + dy);
+                                     activeTouch[1] = (int) box.left; activeTouch[2] = (int) box.top;
+                                 } else if (activeTouch[0] == 3) {
+                                     box.right = Math.max(box.left + 24, box.right + dx);
+                                     box.top = Math.min(box.bottom - 24, box.top + dy);
+                                     activeTouch[1] = (int) box.right; activeTouch[2] = (int) box.top;
+                                 } else if (activeTouch[0] == 4) {
+                                     box.left = Math.min(box.right - 24, box.left + dx);
+                                     box.bottom = Math.max(box.top + 24, box.bottom + dy);
+                                     activeTouch[1] = (int) box.left; activeTouch[2] = (int) box.bottom;
+                                 } else if (activeTouch[0] == 5) {
+                                     box.right = Math.max(box.left + 24, box.right + dx);
+                                     box.bottom = Math.max(box.top + 24, box.bottom + dy);
+                                     activeTouch[1] = (int) box.right; activeTouch[2] = (int) box.bottom;
+                                 }
+                                 autoDodgeCapsule(capsule, isAtTop, (int) box.bottom, sh);
+                                 canvasView.invalidate();
+                                 return true;
+                             } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                 activeTouch[0] = 0;
+                                 canvasView.invalidate();
+                                 return true;
+                             }
+                             return false;
+                         }
+                     });
+                     root.addView(canvasView, new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                     TextView tvHint = new TextView(ctx);
+                     tvHint.setText("حرّك المربع وزواياه ");
+                     tvHint.setTextColor(Color.WHITE);
+                     tvHint.setTextSize(12);
+                     capsule.addView(tvHint);
+                     addCapsuleTransparencyToggle(ctx, capsule, isAtTop);
+                     Button bOk = createActionBtn(ctx, "✅ اعتماد المنطقة", "#16A34A");
+                     bOk.setOnClickListener(v -> {
+                         int cx = (int) box.centerX();
+                         int cy = (int) box.centerY();
+                         int bw = Math.max(24, (int) box.width());
+                         int bh = Math.max(24, (int) box.height());
+                         int cCol = getSafePixel(screenBmp, cx, cy);
+                         String sig = buildGridSignature(screenBmp, cx, cy, bw, bh);
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onPicked(cx, cy, bw, bh, cCol, sig);
+                     });
+                     capsule.addView(bOk);
+                     Button bCancel = createActionBtn(ctx, "❌ إلغاء", "#991B1B");
+                     bCancel.setOnClickListener(v -> {
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onCancel();
+                     });
+                     capsule.addView(bCancel);
+                     FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                         Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+                     capLp.bottomMargin = 18;
+                     root.addView(capsule, capLp);
+                     autoDodgeCapsule(capsule, isAtTop, (int) box.bottom, sh);
+                     wm.addView(root, createOverlayParams());
+                     return root;
+                 }
+                 public static View showOcrBoxPicker(final Context ctx, final WindowManager wm, final Bitmap screenBmp,
+                                                     int initCX, int initCY, int initW, int initH, final OcrPickCallback cb) {
+                     final DisplayMetrics dm = getRealScreenMetrics(ctx, wm, screenBmp);
+                     final int sw = dm.widthPixels, sh = dm.heightPixels;
+                     int startW = Math.max(36, Math.min(650, initW));
+                     int startH = Math.max(36, Math.min(650, initH));
+                     final RectF box = new RectF(
+                         Math.max(10, initCX - startW / 2f),
+                         Math.max(10, initCY - startH / 2f),
+                         Math.min(sw - 10, initCX + startW / 2f),
+                         Math.min(sh - 10, initCY + startH / 2f)
+                     );
+                     final FrameLayout root = new FrameLayout(ctx);
+                     final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                     final int[] activeTouch = new int[]{0, 0, 0};
+                     final LinearLayout capsule = createFloatingCapsule(ctx);
+                     final boolean[] isAtTop = new boolean[]{false};
+                     final View canvasView = new View(ctx) {
+                         @Override
+                         protected void onDraw(Canvas canvas) {
+                             super.onDraw(canvas);
+                             if (screenBmp != null && !screenBmp.isRecycled()) {
+                                 canvas.drawBitmap(screenBmp, 0, 0, null);
+                             }
+                             p.setStyle(Paint.Style.FILL);
+                             p.setColor(Color.argb(145, 0, 0, 0));
+                             canvas.drawRect(0, 0, sw, box.top, p);
+                             canvas.drawRect(0, box.bottom, sw, sh, p);
+                             canvas.drawRect(0, box.top, box.left, box.bottom, p);
+                             canvas.drawRect(box.right, box.top, sw, box.bottom, p);
+                             p.setStyle(Paint.Style.STROKE);
+                             p.setStrokeWidth(3.5f);
+                             p.setColor(Color.parseColor("#FBBF24"));
+                             canvas.drawRect(box, p);
+                             float cx = box.centerX(), cy = box.centerY();
+                             p.setStrokeWidth(2f);
+                             p.setColor(Color.YELLOW);
+                             canvas.drawLine(cx - 14, cy, cx + 14, cy, p);
+                             canvas.drawLine(cx, cy - 14, cx, cy + 14, p);
+                             p.setStyle(Paint.Style.FILL);
+                             p.setColor(Color.WHITE);
+                             float hr = 14f;
+                             canvas.drawCircle(box.left, box.top, hr, p);
+                             canvas.drawCircle(box.right, box.top, hr, p);
+                             canvas.drawCircle(box.left, box.bottom, hr, p);
+                             canvas.drawCircle(box.right, box.bottom, hr, p);
+                         }
+                     };
+                     canvasView.setOnTouchListener(new View.OnTouchListener() {
+                         float lastX, lastY;
+                         @Override
+                         public boolean onTouch(View v, MotionEvent e) {
+                             float x = e.getRawX(), y = e.getRawY();
+                             if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                 lastX = x; lastY = y;
+                                 if (dist(x, y, box.left, box.top) < 55) activeTouch[0] = 2;
+                                 else if (dist(x, y, box.right, box.top) < 55) activeTouch[0] = 3;
+                                 else if (dist(x, y, box.left, box.bottom) < 55) activeTouch[0] = 4;
+                                 else if (dist(x, y, box.right, box.bottom) < 55) activeTouch[0] = 5;
+                                 else activeTouch[0] = 1;
+                                 activeTouch[1] = (int) x; activeTouch[2] = (int) y;
+                                 autoDodgeCapsule(capsule, isAtTop, (int) y, sh);
+                                 canvasView.invalidate();
+                                 return true;
+                             } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                 float dx = x - lastX, dy = y - lastY;
+                                 lastX = x; lastY = y;
+                                 if (activeTouch[0] == 1) {
+                                     box.offset(dx, dy);
+                                     activeTouch[1] = (int) box.centerX();
+                                     activeTouch[2] = (int) box.centerY();
+                                 } else if (activeTouch[0] == 2) {
+                                     box.left = Math.min(box.right - 24, box.left + dx);
+                                     box.top = Math.min(box.bottom - 24, box.top + dy);
+                                     activeTouch[1] = (int) box.left; activeTouch[2] = (int) box.top;
+                                 } else if (activeTouch[0] == 3) {
+                                     box.right = Math.max(box.left + 24, box.right + dx);
+                                     box.top = Math.min(box.bottom - 24, box.top + dy);
+                                     activeTouch[1] = (int) box.right; activeTouch[2] = (int) box.top;
+                                 } else if (activeTouch[0] == 4) {
+                                     box.left = Math.min(box.right - 24, box.left + dx);
+                                     box.bottom = Math.max(box.top + 24, box.bottom + dy);
+                                     activeTouch[1] = (int) box.left; activeTouch[2] = (int) box.bottom;
+                                 } else if (activeTouch[0] == 5) {
+                                     box.right = Math.max(box.left + 24, box.right + dx);
+                                     box.bottom = Math.max(box.top + 24, box.bottom + dy);
+                                     activeTouch[1] = (int) box.right; activeTouch[2] = (int) box.bottom;
+                                 }
+                                 autoDodgeCapsule(capsule, isAtTop, (int) box.bottom, sh);
+                                 canvasView.invalidate();
+                                 return true;
+                             } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                 activeTouch[0] = 0;
+                                 canvasView.invalidate();
+                                 return true;
+                             }
+                             return false;
+                         }
+                     });
+                     root.addView(canvasView, new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                     TextView tvHint = new TextView(ctx);
+                     tvHint.setText("اضبط مربع الأرقام ");
+                     tvHint.setTextColor(Color.WHITE);
+                     tvHint.setTextSize(12);
+                     capsule.addView(tvHint);
+                     addCapsuleTransparencyToggle(ctx, capsule, isAtTop);
+                     Button bOk = createActionBtn(ctx, "✅ اعتماد", "#16A34A");
+                     bOk.setOnClickListener(v -> {
+                         int cx = (int) box.centerX();
+                         int cy = (int) box.centerY();
+                         int bw = Math.max(24, (int) box.width());
+                         int bh = Math.max(24, (int) box.height());
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onPicked(cx, cy, bw, bh);
+                     });
+                     capsule.addView(bOk);
+                     Button bCancel = createActionBtn(ctx, "❌ إلغاء", "#991B1B");
+                     bCancel.setOnClickListener(v -> {
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onCancel();
+                     });
+                     capsule.addView(bCancel);
+                     FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                         Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+                     capLp.bottomMargin = 18;
+                     root.addView(capsule, capLp);
+                     autoDodgeCapsule(capsule, isAtTop, (int) box.bottom, sh);
+                     wm.addView(root, createOverlayParams());
+                     return root;
+                 }
+                 public static View showBarRulerPicker(final Context ctx, final WindowManager wm, final Bitmap screenBmp,
+                                                       int initAX, int initAY, int initBX, int initBY, final RulerPickCallback cb) {
+                     final DisplayMetrics dm = getRealScreenMetrics(ctx, wm, screenBmp);
+                     final int sw = dm.widthPixels, sh = dm.heightPixels;
+                     final int[] ptA = new int[]{Math.max(15, Math.min(sw - 15, initAX)), Math.max(15, Math.min(sh - 15, initAY))};
+                     final int[] ptB = new int[]{Math.max(15, Math.min(sw - 15, initBX)), Math.max(15, Math.min(sh - 15, initBY))};
+                     if (Math.abs(ptA[0] - ptB[0]) < 20 && Math.abs(ptA[1] - ptB[1]) < 20) {
+                         ptB[0] = Math.min(sw - 30, ptA[0] + 220);
+                     }
+                     final int[] draggingWhich = new int[]{0};
+                     final LinearLayout capsule = createFloatingCapsule(ctx);
+                     final boolean[] isAtTop = new boolean[]{false};
+                     final FrameLayout root = new FrameLayout(ctx);
+                     final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                     final View canvasView = new View(ctx) {
+                         @Override
+                         protected void onDraw(Canvas canvas) {
+                             super.onDraw(canvas);
+                             if (screenBmp != null && !screenBmp.isRecycled()) {
+                                 canvas.drawBitmap(screenBmp, 0, 0, null);
+                             }
+                             float ax = ptA[0], ay = ptA[1], bx = ptB[0], by = ptB[1];
+                             p.setStyle(Paint.Style.STROKE);
+                             p.setStrokeWidth(4.5f);
+                             p.setColor(Color.argb(200, 0, 0, 0));
+                             canvas.drawLine(ax, ay, bx, by, p);
+                             p.setStrokeWidth(2.8f);
+                             p.setColor(Color.parseColor("#38BDF8"));
+                             canvas.drawLine(ax, ay, bx, by, p);
+                             for (int i = 1; i <= 9; i++) {
+                                 float r = i / 10f;
+                                 float tx = ax + (bx - ax) * r;
+                                 float ty = ay + (by - ay) * r;
+                                 p.setStyle(Paint.Style.FILL);
+                                 p.setColor(i == 5 ? Color.YELLOW : Color.WHITE);
+                                 canvas.drawCircle(tx, ty, i == 5 ? 5.5f : 3.5f, p);
+                             }
+                             drawDirectionArrow(canvas, ax, ay, ax + (bx - ax) * 0.35f, ay + (by - ay) * 0.35f, 18f, p);
+                             drawDirectionArrow(canvas, ax, ay, ax + (bx - ax) * 0.70f, ay + (by - ay) * 0.70f, 18f, p);
+                             drawRulerKnob(canvas, ax, ay, "A (0%)", Color.parseColor("#10B981"), p);
+                             drawRulerKnob(canvas, bx, by, "B (100%)", Color.parseColor("#F59E0B"), p);
+                             if (draggingWhich[0] == 1) {
+                                 drawFloatingLoupe(canvas, screenBmp, ptA[0], ptA[1], sw, sh, true, p);
+                             } else if (draggingWhich[0] == 2) {
+                                 drawFloatingLoupe(canvas, screenBmp, ptB[0], ptB[1], sw, sh, true, p);
+                             }
+                         }
+                     };
+                     canvasView.setOnTouchListener((v, e) -> {
+                         float x = e.getRawX(), y = e.getRawY();
+                         if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                             float dA = dist(x, y, ptA[0], ptA[1]);
+                             float dB = dist(x, y, ptB[0], ptB[1]);
+                             draggingWhich[0] = (dA <= dB) ? 1 : 2;
+                             int cx = Math.max(2, Math.min(sw - 2, (int) x));
+                             int cy = Math.max(2, Math.min(sh - 2, (int) y));
+                             if (draggingWhich[0] == 1) { ptA[0] = cx; ptA[1] = cy; }
+                             else { ptB[0] = cx; ptB[1] = cy; }
+                             autoDodgeCapsule(capsule, isAtTop, cy, sh);
+                             canvasView.invalidate();
+                             return true;
+                         } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                             int cx = Math.max(2, Math.min(sw - 2, (int) x));
+                             int cy = Math.max(2, Math.min(sh - 2, (int) y));
+                             if (draggingWhich[0] == 1) { ptA[0] = cx; ptA[1] = cy; }
+                             else if (draggingWhich[0] == 2) { ptB[0] = cx; ptB[1] = cy; }
+                             autoDodgeCapsule(capsule, isAtTop, cy, sh);
+                             canvasView.invalidate();
+                             return true;
+                         } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                             draggingWhich[0] = 0;
+                             canvasView.invalidate();
+                             return true;
+                         }
+                         return false;
+                     });
+                     root.addView(canvasView, new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                     TextView tvHint = new TextView(ctx);
+                     tvHint.setText("اسحب A(0%) و B(100%) ");
+                     tvHint.setTextColor(Color.WHITE);
+                     tvHint.setTextSize(12);
+                     capsule.addView(tvHint);
+                     addCapsuleTransparencyToggle(ctx, capsule, isAtTop);
+                     Button bOk = createActionBtn(ctx, "✅ اعتماد المسطرة", "#16A34A");
+                     bOk.setOnClickListener(v -> {
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onPicked(ptA[0], ptA[1], ptB[0], ptB[1]);
+                     });
+                     capsule.addView(bOk);
+                     Button bCancel = createActionBtn(ctx, "❌ إلغاء", "#991B1B");
+                     bCancel.setOnClickListener(v -> {
+                         try { wm.removeView(root); } catch (Exception ignored) {}
+                         cb.onCancel();
+                     });
+                     capsule.addView(bCancel);
+                     FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(
+                         FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                         Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+                     capLp.bottomMargin = 18;
+                     root.addView(capsule, capLp);
+                     autoDodgeCapsule(capsule, isAtTop, Math.max(ptA[1], ptB[1]), sh);
+                     wm.addView(root, createOverlayParams());
+                     return root;
+                 }
+                 private static void drawRulerKnob(Canvas canvas, float x, float y, String label, int color, Paint p) {
+                     p.setStyle(Paint.Style.FILL);
+                     p.setColor(Color.argb(65, Color.red(color), Color.green(color), Color.blue(color)));
+                     canvas.drawCircle(x, y, 34f, p);
+                     p.setStyle(Paint.Style.STROKE);
+                     p.setStrokeWidth(4f);
+                     p.setColor(color);
+                     canvas.drawCircle(x, y, 34f, p);
+                     p.setStrokeWidth(2.5f);
+                     p.setColor(Color.WHITE);
+                     canvas.drawLine(x - 14, y, x + 14, y, p);
+                     canvas.drawLine(x, y - 14, x, y + 14, p);
+                     RectF tag = new RectF(x - 42, y - 64, x + 42, y - 38);
+                     p.setStyle(Paint.Style.FILL);
+                     p.setColor(Color.parseColor("#DD18181B"));
+                     canvas.drawRoundRect(tag, 8f, 8f, p);
+                     p.setColor(Color.WHITE);
+                     p.setTextSize(15f);
+                     p.setTextAlign(Paint.Align.CENTER);
+                     canvas.drawText(label, x, y - 46, p);
+                     p.setTextAlign(Paint.Align.LEFT);
+                 }
+                 private static void drawDirectionArrow(Canvas canvas, float fx, float fy, float tx, float ty, float sz, Paint p) {
+                     double ang = Math.atan2(ty - fy, tx - fx);
+                     Path path = new Path();
+                     path.moveTo(tx, ty);
+                     path.lineTo((float) (tx - sz * Math.cos(ang - Math.PI / 6)), (float) (ty - sz * Math.sin(ang - Math.PI / 6)));
+                     path.lineTo((float) (tx - sz * Math.cos(ang + Math.PI / 6)), (float) (ty - sz * Math.sin(ang + Math.PI / 6)));
+                     path.close();
+                     p.setStyle(Paint.Style.FILL);
+                     p.setColor(Color.parseColor("#38BDF8"));
+                     canvas.drawPath(path, p);
+                 }
+                 private static float dist(float x1, float y1, float x2, float y2) {
+                     return (float) Math.hypot(x1 - x2, y1 - y2);
+                 }
+                 private static Button createActionBtn(Context ctx, String text, String hex) {
+                     Button b = new Button(ctx);
+                     b.setText(text);
+                     b.setTextColor(Color.WHITE);
+                     b.setTextSize(11);
+                     b.setPadding(18, 8, 18, 8);
+                     GradientDrawable bg = new GradientDrawable();
+                     bg.setColor(Color.parseColor(hex));
+                     bg.setCornerRadius(16f);
+                     b.setBackgroundDrawable(bg);
+                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                     lp.setMargins(6, 0, 0, 0);
+                     b.setLayoutParams(lp);
+                     return b;
+                 }
+                 private static WindowManager.LayoutParams createOverlayParams() {
+                     return new WindowManager.LayoutParams(
+                         WindowManager.LayoutParams.MATCH_PARENT,
+                         WindowManager.LayoutParams.MATCH_PARENT,
+                         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                         PixelFormat.TRANSLUCENT);
+                 }
+             }
           """)
           # --- نهاية الجزء الثالث (3/5) ---
           write_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
