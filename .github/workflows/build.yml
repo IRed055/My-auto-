@@ -57,6 +57,7 @@ jobs:
               rootProject.name = "RedAutoClicker"
               include ':app'
           """)
+          write_file("gradle.properties", "android.useAndroidX=true\norg.gradle.jvmargs=-Xmx2g\n")
 
           write_file("build.gradle", r"""
               plugins {
@@ -712,6 +713,8 @@ jobs:
               import android.widget.FrameLayout;
               import com.google.mlkit.vision.text.TextRecognizer;
               import com.google.mlkit.vision.common.InputImage;
+              import android.widget.FrameLayout;
+              import com.google.mlkit.vision.text.TextRecognizer;
               import com.google.mlkit.vision.text.TextRecognition;
               import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
               import java.util.concurrent.CountDownLatch;
@@ -1023,6 +1026,7 @@ jobs:
               import android.widget.LinearLayout;
               import android.widget.ScrollView;
               import android.widget.SeekBar;
+              import android.view.View;
               import android.widget.TextView;
               import android.widget.Toast;
               import org.json.JSONObject;
@@ -2015,7 +2019,6 @@ jobs:
                       } catch (Exception ignored) {}
                       cb.onFrame(null);
                   }
-              }
           """)
           # --- نهاية الجزء الرابع (4/5) ---
           append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
