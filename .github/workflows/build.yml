@@ -4001,612 +4001,641 @@ jobs:
           """)
           # --- نهاية النصف الأول من الجزء الخامس (5A) ---
           append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
-                  private void showConfirmDialog(String title, String message, final Runnable onConfirm) {
-                      LinearLayout box = createPopupContainer("⚠️ " + title);
-                      TextView tv = new TextView(this);
-                      tv.setText(message);
-                      tv.setTextColor(Color.WHITE);
-                      tv.setTextSize(14);
-                      tv.setPadding(0, 10, 0, 20);
-                      box.addView(tv);
-                      LinearLayout row = new LinearLayout(this);
-                      row.setOrientation(LinearLayout.HORIZONTAL);
-                      Button bYes = createPopupButton("نعم، متأكد", "#DC2626");
-                      LinearLayout.LayoutParams yp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                      yp.setMargins(0, 6, 8, 6);
-                      bYes.setLayoutParams(yp);
-                      bYes.setOnClickListener(v -> {
-                          dismissPopupDirect();
-                          if (onConfirm != null) onConfirm.run();
-                      });
-                      Button bNo = createPopupButton("إلغاء", "#4B5563");
-                      LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                      np.setMargins(8, 6, 0, 6);
-                      bNo.setLayoutParams(np);
-                      bNo.setOnClickListener(v -> dismissPopupDirect());
-                      row.addView(bYes);
-                      row.addView(bNo);
-                      box.addView(row);
-                      showPopupView(box, null);
-                  }
-                  private void loadScenarioSteps(List<StepItem> loaded) {
-                      for (StepItem old : steps) removeStepViews(old);
-                      steps.clear();
-                      for (StepItem s : loaded) {
-                          createStepViews(s);
-                          steps.add(s);
-                      }
-                      normalizeStepNumbers();
-                      applyVisibilityRules();
-                      triggerEmergencyAutoSave();
-                      updateHudText("Red Clicker | تم تحميل " + steps.size() + " خطوة");
-                  }
-                  private List<Integer> getSortedUniqueSteps() {
-                      List<Integer> unique = new ArrayList<>();
-                      for (StepItem s : steps) {
-                          if (!unique.contains(s.stepNum)) unique.add(s.stepNum);
-                      }
-                      Collections.sort(unique);
-                      return unique;
-                  }
-                  private void startScenario(int startGroupIdx) {
-                      if (steps.isEmpty()) {
-                          showSingleToast("أضف خطوات أولاً من زر (+)");
-                          return;
-                      }
-                      for (StepItem s : steps) s.currentJumpCount = 0;
-                      isRunning = true;
-                      isPaused = false;
-                      currentGroupIndex = startGroupIdx;
-                      currentSubRepeat = 0;
-                      currentLoopCycle = 1;
-                      shrinkHandler.removeCallbacksAndMessages(null);
-                      buildBarLayout.setVisibility(View.GONE);
-                      bubbleView.setVisibility(View.GONE);
-                      playBarLayout.setVisibility(View.VISIBLE);
-                      btnPauseResume.setText("⏸");
-                      setMarkersTouchable(false);
-                      runCurrentGroup();
-                  }
-                  private void startScenarioFromStepNum(int stepNum) {
-                      List<Integer> unique = getSortedUniqueSteps();
-                      int idx = unique.indexOf(stepNum);
-                      startScenario(Math.max(0, idx));
-                  }
-                  private void togglePauseResume() {
-                      if (!isRunning) return;
-                      isPaused = !isPaused;
-                      btnPauseResume.setText(isPaused ? "▶" : "⏸");
-                      if (isPaused) {
-                          handler.removeCallbacksAndMessages(null);
-                          clearAllHighlights();
-                          updateHudText("مؤقت ⏸ | خطوة " + (currentGroupIndex + 1));
-                      } else {
-                          runCurrentGroup();
-                      }
-                  }
-                  private void skipCurrentStep() {
-                      if (!isRunning) return;
-                      handler.removeCallbacksAndMessages(null);
-                      clearAllHighlights();
-                      currentSubRepeat = 0;
-                      currentGroupIndex++;
-                      runCurrentGroup();
-                  }
-                  private void stopScenario() {
-                      isRunning = false;
-                      isPaused = false;
-                      handler.removeCallbacksAndMessages(null);
-                      clearAllHighlights();
-                      setMarkersTouchable(true);
-                      playBarLayout.setVisibility(View.GONE);
-                      buildBarLayout.setVisibility(View.VISIBLE);
-                      updateHudText("توقف ⏹ | جاهز");
-                      scheduleAutoShrink();
-                  }
-                  private void setMarkersTouchable(boolean touchable) {
-                      for (StepItem s : steps) {
-                          int flags = touchable
-                              ? (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
-                              : (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
-                          if (s.primaryView != null && s.primaryParams != null) {
-                              s.primaryParams.flags = flags;
-                              wm.updateViewLayout(s.primaryView, s.primaryParams);
-                          }
-                          if (s.secondaryView != null && s.secondaryParams != null) {
-                              s.secondaryParams.flags = flags;
-                              wm.updateViewLayout(s.secondaryView, s.secondaryParams);
-                          }
-                      }
-                  }
-                  private void clearAllHighlights() {
-                      for (StepItem s : steps) {
-                          if (s.primaryView != null) s.primaryView.setHighlighted(false);
-                          if (s.secondaryView != null) s.secondaryView.setHighlighted(false);
-                      }
-                  }
-                  private void runCurrentGroup() {
-                      if (!isRunning || isPaused || steps.isEmpty()) return;
-                      final List<Integer> uniqueSteps = getSortedUniqueSteps();
-                      if (currentGroupIndex >= uniqueSteps.size()) {
-                          currentGroupIndex = 0;
-                          currentSubRepeat = 0;
-                          currentLoopCycle++;
-                          for (StepItem s : steps) s.currentJumpCount = 0;
-                      }
-                      final int stepNum = uniqueSteps.get(currentGroupIndex);
-                      final List<StepItem> group = new ArrayList<>();
-                      for (StepItem s : steps) {
-                          if (s.stepNum == stepNum) group.add(s);
-                      }
-                      final StepItem leader = group.get(0);
-                      final int totalReps = Math.max(1, leader.repeatCount);
-                      updateHudText("خطوة " + stepNum + "/" + uniqueSteps.size()
-                          + (totalReps > 1 ? " (تكرار " + (currentSubRepeat + 1) + "/" + totalReps + ")" : "")
-                          + " | دورة " + currentLoopCycle);
-                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                      final int defRandMs = prefs.getInt("def_rand_ms", 35);
-                      int leaderRandMs = leader.useCustomRandom ? leader.customRandMs : defRandMs;
-                      int waitMs = leader.delayMs;
-                      if (leader.useRandom && leaderRandMs > 0) {
-                          waitMs += random.nextInt(leaderRandMs * 2 + 1) - leaderRandMs;
-                      }
-                      waitMs = Math.max(15, waitMs);
-                      handler.postDelayed(() -> {
-                          if (!isRunning || isPaused) return;
-                          if (leader.type == StepItem.TYPE_VISION_CHECK) {
-                              evaluateConditionWithOptionalWait(leader, uniqueSteps, true);
-                              return;
-                          }
-                          if (leader.useCondition && leader.checkBeforeTap) {
-                              evaluateConditionWithOptionalWait(leader, uniqueSteps, false);
-                              return;
-                          }
-                          executeGroupGestures(group, leader, uniqueSteps, totalReps);
-                      }, waitMs);
-                  }
-                  private void evaluateConditionWithOptionalWait(final StepItem leader, final List<Integer> uniqueSteps, final boolean isStandaloneVision) {
-                      final long startTime = System.currentTimeMillis();
-                      final int[] consecutiveHits = new int[]{0};
-                      final Runnable[] checkLoopRef = new Runnable[1];
-                      checkLoopRef[0] = () -> {
-                          if (!isRunning || isPaused) return;
-                          captureScreenAsync(false, bmp -> {
-                              if (!isRunning || isPaused) {
-                                  if (bmp != null && !bmp.isRecycled()) bmp.recycle();
-                                  return;
-                              }
-                              boolean matched = VisionHelper.evaluateStep(leader, bmp);
-                              if (bmp != null && !bmp.isRecycled()) bmp.recycle();
-                              if (matched) {
-                                  consecutiveHits[0]++;
-                                  if (consecutiveHits[0] >= Math.max(1, leader.condConfirmCount)) {
-                                      handleConditionDecision(leader, uniqueSteps, leader.condSuccessAction, leader.condSuccessJumpStep, isStandaloneVision);
-                                      return;
-                                  }
-                                  handler.postDelayed(checkLoopRef[0], Math.max(60, leader.condRetryIntervalMs));
-                              } else {
-                                  consecutiveHits[0] = 0;
-                                  if (!leader.condWaitMode) {
-                                      handleConditionDecision(leader, uniqueSteps, leader.condFailAction, leader.condFailJumpStep, true);
-                                  } else {
-                                      long elapsed = System.currentTimeMillis() - startTime;
-                                      if (elapsed >= leader.condWaitTimeoutMs) {
-                                          handleConditionDecision(leader, uniqueSteps, leader.condTimeoutAction, leader.condTimeoutJumpStep, true);
-                                      } else {
-                                          updateHudText("⏳ انتظار الشرط البصري... (" + ((leader.condWaitTimeoutMs - elapsed) / 1000 + 1) + "s)");
-                                          handler.postDelayed(checkLoopRef[0], Math.max(80, leader.condRetryIntervalMs));
-                                      }
-                                  }
-                              }
-                          });
-                      };
-                      checkLoopRef[0].run();
-                  }
-                  private void handleConditionDecision(StepItem leader, List<Integer> uniqueSteps, int actionType, int jumpTarget, boolean skipTapExecution) {
-                      if (!isRunning || isPaused) return;
-                      if (actionType == 3) {
-                          stopScenario();
-                          showSingleToast("⏹ تم إيقاف السيناريو بناءً على الشرط البصري");
-                          return;
-                      }
-                      if (actionType == 2) {
-                          int idx = uniqueSteps.indexOf(jumpTarget);
-                          currentGroupIndex = (idx >= 0) ? idx : 0;
-                          currentSubRepeat = 0;
-                          handler.postDelayed(this::runCurrentGroup, 40);
-                          return;
-                      }
-                      if (actionType == 1 || skipTapExecution) {
-                          currentSubRepeat = 0;
-                          currentGroupIndex++;
-                          handler.postDelayed(this::runCurrentGroup, 40);
-                          return;
-                      }
-                      final List<StepItem> group = new ArrayList<>();
-                      for (StepItem s : steps) {
-                          if (s.stepNum == leader.stepNum) group.add(s);
-                      }
-                      executeGroupGestures(group, leader, uniqueSteps, Math.max(1, leader.repeatCount));
-                  }
-                  private void executeGroupGestures(final List<StepItem> group, final StepItem leader, final List<Integer> uniqueSteps, final int totalReps) {
-                      if (!isRunning || isPaused) return;
-                      clearAllHighlights();
-                      for (StepItem s : group) {
-                          if (s.primaryView != null) s.primaryView.setHighlighted(true);
-                          if (s.secondaryView != null) s.secondaryView.setHighlighted(true);
-                      }
-                      if (leader.type == StepItem.TYPE_JUMP) {
-                          if (leader.currentJumpCount < leader.jumpRepeatCount) {
-                              leader.currentJumpCount++;
-                              int targetIdx = uniqueSteps.indexOf(leader.jumpTargetStep);
-                              currentGroupIndex = (targetIdx >= 0) ? targetIdx : 0;
-                          } else {
-                              leader.currentJumpCount = 0;
-                              currentGroupIndex++;
-                          }
-                          currentSubRepeat = 0;
-                          handler.postDelayed(this::runCurrentGroup, 50);
-                          return;
-                      }
-                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                      final int defRandPx = prefs.getInt("def_rand_px", 11);
-                      final int defRandDur = prefs.getInt("def_rand_dur", 15);
-                      DisplayMetrics dm = getRealDisplayMetrics();
-                      int maxScreenDim = Math.max(dm.widthPixels, dm.heightPixels) - 2;
-                      GestureDescription.Builder builder = new GestureDescription.Builder();
-                      int strokeCount = 0;
-                      for (StepItem s : group) {
-                          if (strokeCount >= 10 || s.type == StepItem.TYPE_VISION_CHECK) continue;
-                          int sRandPx = s.useCustomRandom ? s.customRandPx : defRandPx;
-                          int sRandDur = s.useCustomRandom ? s.customRandDur : defRandDur;
-                          int[] loc1 = new int[2];
-                          s.primaryView.getLocationOnScreen(loc1);
-                          float x1 = loc1[0] + (s.primaryView.getWidth() / 2f);
-                          float y1 = loc1[1] + (s.primaryView.getHeight() / 2f);
-                          if (s.useRandom && sRandPx > 0) {
-                              x1 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
-                              y1 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
-                          }
-                          x1 = Math.max(1f, Math.min(maxScreenDim, x1));
-                          y1 = Math.max(1f, Math.min(maxScreenDim, y1));
-                          int dur = s.durationMs;
-                          if (s.useRandom && sRandDur > 0) {
-                              dur += random.nextInt(sRandDur * 2 + 1) - sRandDur;
-                          }
-                          dur = Math.max(20, dur);
-                          if (s.type == StepItem.TYPE_TAP) {
-                              Path p = new Path();
-                              p.moveTo(x1, y1);
-                              builder.addStroke(new GestureDescription.StrokeDescription(p, 0, dur));
-                              strokeCount++;
-                          } else if (s.type == StepItem.TYPE_SWIPE && s.secondaryView != null) {
-                              int[] loc2 = new int[2];
-                              s.secondaryView.getLocationOnScreen(loc2);
-                              float x2 = loc2[0] + (s.secondaryView.getWidth() / 2f);
-                              float y2 = loc2[1] + (s.secondaryView.getHeight() / 2f);
-                              if (s.useRandom && sRandPx > 0) {
-                                  x2 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
-                                  y2 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
-                              }
-                              x2 = Math.max(1f, Math.min(maxScreenDim, x2));
-                              y2 = Math.max(1f, Math.min(maxScreenDim, y2));
-                              Path p = new Path();
-                              p.moveTo(x1, y1);
-                              p.lineTo(x2, y2);
-                              builder.addStroke(new GestureDescription.StrokeDescription(p, 0, Math.max(80, dur)));
-                              strokeCount++;
-                          } else if ((s.type == StepItem.TYPE_ZOOM_OUT || s.type == StepItem.TYPE_ZOOM_IN) && s.secondaryView != null && strokeCount <= 8) {
-                              int[] loc2 = new int[2];
-                              s.secondaryView.getLocationOnScreen(loc2);
-                              float x2 = Math.max(1f, Math.min(maxScreenDim, loc2[0] + (s.secondaryView.getWidth() / 2f)));
-                              float y2 = Math.max(1f, Math.min(maxScreenDim, loc2[1] + (s.secondaryView.getHeight() / 2f)));
-                              float midX = (x1 + x2) / 2f;
-                              float midY = (y1 + y2) / 2f;
-                              float innerX1 = midX + (x1 - midX) * 0.28f;
-                              float innerY1 = midY + (y1 - midY) * 0.28f;
-                              float innerX2 = midX + (x2 - midX) * 0.28f;
-                              float innerY2 = midY + (y2 - midY) * 0.28f;
-                              Path p1 = new Path();
-                              Path p2 = new Path();
-                              if (s.type == StepItem.TYPE_ZOOM_OUT) {
-                                  p1.moveTo(x1, y1); p1.lineTo(innerX1, innerY1);
-                                  p2.moveTo(x2, y2); p2.lineTo(innerX2, innerY2);
-                              } else {
-                                  p1.moveTo(innerX1, innerY1); p1.lineTo(x1, y1);
-                                  p2.moveTo(innerX2, innerY2); p2.lineTo(x2, y2);
-                              }
-                              int zDur = Math.max(120, dur);
-                              builder.addStroke(new GestureDescription.StrokeDescription(p1, 0, zDur));
-                              builder.addStroke(new GestureDescription.StrokeDescription(p2, 0, zDur));
-                              strokeCount += 2;
-                          }
-                      }
-                      if (strokeCount == 0) {
-                          afterGestureFinish(leader, uniqueSteps, totalReps);
-                          return;
-                      }
-                      dispatchGesture(builder.build(), new GestureResultCallback() {
-                          @Override
-                          public void onCompleted(GestureDescription gestureDescription) {
-                              afterGestureFinish(leader, uniqueSteps, totalReps);
-                          }
-                          @Override
-                          public void onCancelled(GestureDescription gestureDescription) {
-                              afterGestureFinish(leader, uniqueSteps, totalReps);
-                          }
-                      }, null);
-                  }
-                  private void afterGestureFinish(StepItem leader, List<Integer> uniqueSteps, int totalReps) {
-                      clearAllHighlights();
-                      if (leader.useCondition && !leader.checkBeforeTap && leader.type != StepItem.TYPE_VISION_CHECK) {
-                          evaluateConditionWithOptionalWait(leader, uniqueSteps, true);
-                          return;
-                      }
-                      currentSubRepeat++;
-                      if (currentSubRepeat < totalReps) {
-                          runCurrentGroup();
-                      } else {
-                          currentSubRepeat = 0;
-                          currentGroupIndex++;
-                          runCurrentGroup();
-                      }
-                  }
-                  private LinearLayout createPopupContainer(String titleText) {
-                      LinearLayout box = new LinearLayout(this);
-                      box.setOrientation(LinearLayout.VERTICAL);
-                      box.setPadding(26, 20, 26, 22);
-                      GradientDrawable bg = new GradientDrawable();
-                      bg.setColor(Color.parseColor("#F518181B"));
-                      bg.setCornerRadius(26f);
-                      bg.setStroke(3, Color.parseColor("#DC2626"));
-                      box.setBackgroundDrawable(bg);
-                      box.setClickable(true);
-                      LinearLayout topRow = new LinearLayout(this);
-                      topRow.setOrientation(LinearLayout.HORIZONTAL);
-                      topRow.setGravity(Gravity.CENTER_VERTICAL);
-                      topRow.setPadding(0, 0, 0, 12);
-                      TextView btnX = new TextView(this);
-                      btnX.setText("✖");
-                      btnX.setTextColor(Color.WHITE);
-                      btnX.setTextSize(15);
-                      btnX.setGravity(Gravity.CENTER);
-                      GradientDrawable xBg = new GradientDrawable();
-                      xBg.setShape(GradientDrawable.OVAL);
-                      xBg.setColor(Color.parseColor("#DC2626"));
-                      btnX.setBackgroundDrawable(xBg);
-                      LinearLayout.LayoutParams xlp = new LinearLayout.LayoutParams(66, 66);
-                      xlp.setMargins(0, 0, 14, 0);
-                      btnX.setLayoutParams(xlp);
-                      btnX.setOnClickListener(v -> saveAndDismissPopup());
-                      TextView title = new TextView(this);
-                      title.setText(titleText);
-                      title.setTextColor(Color.WHITE);
-                      title.setTextSize(14);
-                      title.getPaint().setFakeBoldText(true);
-                      title.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                      topRow.addView(btnX);
-                      topRow.addView(title);
-                      box.addView(topRow);
-                      return box;
-                  }
-                  private EditText createPopupInput(LinearLayout parent, String label, String val, boolean numeric, boolean withQuickChips) {
-                      TextView tv = new TextView(this);
-                      tv.setText(label);
-                      tv.setTextColor(Color.parseColor("#E4E4E7"));
-                      tv.setTextSize(12);
-                      tv.setPadding(0, 8, 0, 4);
-                      parent.addView(tv);
-                      LinearLayout inputRow = new LinearLayout(this);
-                      inputRow.setOrientation(LinearLayout.HORIZONTAL);
-                      inputRow.setGravity(Gravity.CENTER_VERTICAL);
-                      final EditText et = new EditText(this);
-                      if (numeric) et.setInputType(InputType.TYPE_CLASS_NUMBER);
-                      else et.setInputType(InputType.TYPE_CLASS_TEXT);
-                      et.setSingleLine(true);
-                      et.setImeOptions(EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
-                      et.setOnEditorActionListener((v, actionId, event) -> {
-                          if (actionId == EditorInfo.IME_ACTION_DONE || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
-                              InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                              if (imm != null) imm.hideSoftInputFromWindow(et.getWindowToken(), 0);
-                              et.clearFocus();
-                              return true;
-                          }
-                          return false;
-                      });
-                      et.setText(val);
-                      et.setTextColor(Color.WHITE);
-                      GradientDrawable bg = new GradientDrawable();
-                      bg.setColor(Color.parseColor("#27272A"));
-                      bg.setCornerRadius(12f);
-                      bg.setStroke(2, Color.parseColor("#3F3F46"));
-                      et.setBackgroundDrawable(bg);
-                      et.setPadding(18, 10, 18, 10);
-                      et.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                      inputRow.addView(et);
-                      if (withQuickChips) {
-                          Button bClear = new Button(this);
-                          bClear.setText("✖");
-                          bClear.setTextColor(Color.WHITE);
-                          bClear.setTextSize(11);
-                          GradientDrawable cBg = new GradientDrawable();
-                          cBg.setColor(Color.parseColor("#991B1B"));
-                          cBg.setCornerRadius(10f);
-                          bClear.setBackgroundDrawable(cBg);
-                          LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(72, 66);
-                          clp.setMargins(8, 0, 0, 0);
-                          bClear.setLayoutParams(clp);
-                          bClear.setOnClickListener(v -> et.setText("0"));
-                          inputRow.addView(bClear);
-                      }
-                      parent.addView(inputRow);
-                      if (withQuickChips) {
-                          LinearLayout chipsRow = new LinearLayout(this);
-                          chipsRow.setOrientation(LinearLayout.HORIZONTAL);
-                          chipsRow.setPadding(0, 5, 0, 3);
-                          int[] increments = {50, 100, 500, 1000};
-                          for (final int inc : increments) {
-                              Button chip = new Button(this);
-                              chip.setText("+" + inc);
-                              chip.setTextColor(Color.WHITE);
-                              chip.setTextSize(11);
-                              chip.setPadding(4, 2, 4, 2);
-                              GradientDrawable chBg = new GradientDrawable();
-                              chBg.setColor(Color.parseColor("#3F3F46"));
-                              chBg.setCornerRadius(10f);
-                              chip.setBackgroundDrawable(chBg);
-                              LinearLayout.LayoutParams chLp = new LinearLayout.LayoutParams(0, 62, 1f);
-                              chLp.setMargins(3, 0, 3, 0);
-                              chip.setLayoutParams(chLp);
-                              chip.setOnClickListener(v -> {
-                                  int cur = 0;
-                                  try { cur = Integer.parseInt(et.getText().toString().trim()); } catch (Exception ignored) {}
-                                  et.setText(String.valueOf(cur + inc));
-                              });
-                              chipsRow.addView(chip);
-                          }
-                          parent.addView(chipsRow);
-                      }
-                      return et;
-                  }
-                  private Button createPopupButton(String text, String colorHex) {
-                      Button b = new Button(this);
-                      b.setText(text);
-                      b.setTextColor(Color.WHITE);
-                      b.setTextSize(12);
-                      GradientDrawable bg = new GradientDrawable();
-                      bg.setColor(Color.parseColor(colorHex));
-                      bg.setCornerRadius(16f);
-                      b.setBackgroundDrawable(bg);
-                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                      lp.setMargins(0, 6, 0, 5);
-                      b.setLayoutParams(lp);
-                      return b;
-                  }
-                  private void showPopupView(LinearLayout contentBox, final Runnable onAutoSave) {
-                      dismissPopupDirect();
-                      activePopupAutoSave = onAutoSave;
-                      FrameLayout fullScreenBackdrop = new FrameLayout(this) {
-                          @Override
-                          public boolean dispatchKeyEvent(KeyEvent event) {
-                              if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                                  saveAndDismissPopup();
-                                  return true;
-                              }
-                              return super.dispatchKeyEvent(event);
-                          }
-                      };
-                      fullScreenBackdrop.setBackgroundColor(Color.argb(145, 0, 0, 0));
-                      fullScreenBackdrop.setFocusableInTouchMode(true);
-                      fullScreenBackdrop.requestFocus();
-                      fullScreenBackdrop.setOnClickListener(v -> saveAndDismissPopup());
-                      ScrollView scroll = new ScrollView(this);
-                      scroll.setClickable(true);
-                      scroll.addView(contentBox);
-                      DisplayMetrics dm = getRealDisplayMetrics();
-                      FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
-                          (int) (dm.widthPixels * 0.90f),
-                          FrameLayout.LayoutParams.WRAP_CONTENT,
-                          Gravity.CENTER);
-                      fullScreenBackdrop.addView(scroll, cardLp);
-                      WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                          WindowManager.LayoutParams.MATCH_PARENT,
-                          WindowManager.LayoutParams.MATCH_PARENT,
-                          WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                          WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                          PixelFormat.TRANSLUCENT);
-                      lp.gravity = Gravity.CENTER;
-                      lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
-                      activePopupDialog = fullScreenBackdrop;
-                      wm.addView(activePopupDialog, lp);
-                  }
-                  private void saveAndDismissPopup() {
-                      if (activePopupAutoSave != null) {
-                          try { activePopupAutoSave.run(); } catch (Exception ignored) {}
-                          activePopupAutoSave = null;
-                      }
-                      dismissPopupDirect();
-                  }
-                  private void dismissPopupDirect() {
-                      activePopupAutoSave = null;
-                      if (activePopupDialog != null) {
-                          try { wm.removeView(activePopupDialog); } catch (Exception ignored) {}
-                          activePopupDialog = null;
-                      }
-                  }
-                  private void closeAll() {
-                      stopScenario();
-                      dismissPopupDirect();
-                      cancelPersistentControlNotification();
-                      stopScreenSharingCompletely();
-                      if (pickerOverlayView != null) {
-                          try { wm.removeView(pickerOverlayView); } catch (Exception ignored) {}
-                          pickerOverlayView = null;
-                      }
-                      if (freezeOverlayView != null) {
-                          try { wm.removeView(freezeOverlayView); } catch (Exception ignored) {}
-                          freezeOverlayView = null;
-                          isGameTouchFrozen = false;
-                      }
-                      for (StepItem s : steps) removeStepViews(s);
-                      steps.clear();
-                      if (vectorOverlay != null) {
-                          try { wm.removeView(vectorOverlay); } catch (Exception ignored) {}
-                          vectorOverlay = null;
-                      }
-                      if (hudView != null) {
-                          try { wm.removeView(hudView); } catch (Exception ignored) {}
-                          hudView = null;
-                      }
-                      if (rootBarContainer != null) {
-                          try { wm.removeView(rootBarContainer); } catch (Exception ignored) {}
-                          rootBarContainer = null;
-                      }
-                  }
-                  @Override
-                  public void onAccessibilityEvent(AccessibilityEvent event) {
-                      if (event == null || !isRunning) return;
-                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                      String pkg = event.getPackageName() != null ? event.getPackageName().toString().toLowerCase() : "";
-                      if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-                          if (prefs.getBoolean("pause_on_call", true) && !isPaused) {
-                              if (pkg.contains("incallui") || pkg.contains("telecom") || pkg.contains("dialer") || pkg.contains("phone")) {
-                                  togglePauseResume();
-                                  showSingleToast("📞 تم إيقاف النقر مؤقتاً بسبب مكالمة هاتفية");
-                                  return;
-                              }
-                          }
-                          if (prefs.getBoolean("stop_on_home", false) && pkg.contains("launcher")) {
-                              stopScenario();
-                              return;
-                          }
-                      }
-                      if (event.getEventType() == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED && !isPaused) {
-                          if (pkg.contains("smartclicker") || pkg.contains("systemui")) return;
-                          int notifMode = prefs.getInt("notif_mode", 1);
-                          long now = System.currentTimeMillis();
-                          if (now - lastNotifActionTime < 2500) return;
-                          lastNotifActionTime = now;
-                          if (notifMode == 1) {
-                              handler.removeCallbacksAndMessages(null);
-                              DisplayMetrics dm = getRealDisplayMetrics();
-                              Path swipeUp = new Path();
-                              swipeUp.moveTo(dm.widthPixels / 2f, 220f);
-                              swipeUp.lineTo(dm.widthPixels / 2f, 15f);
-                              GestureDescription.Builder b = new GestureDescription.Builder();
-                              b.addStroke(new GestureDescription.StrokeDescription(swipeUp, 0, 140));
-                              dispatchGesture(b.build(), null, null);
-                              handler.postDelayed(this::runCurrentGroup, 400);
-                          } else if (notifMode == 2) {
-                              handler.removeCallbacksAndMessages(null);
-                              updateHudText("⏳ انتظار اختفاء الإشعار...");
-                              handler.postDelayed(this::runCurrentGroup, 3500);
-                          }
-                      }
-                  }
-                  @Override public void onInterrupt() {}
-              }
+             private void showConfirmDialog(String title, String message, final Runnable onConfirm) {
+                 LinearLayout box = createPopupContainer("⚠️ " + title);
+                 TextView tv = new TextView(this);
+                 tv.setText(message);
+                 tv.setTextColor(Color.WHITE);
+                 tv.setTextSize(14);
+                 tv.setPadding(0, 10, 0, 20);
+                 box.addView(tv);
+                 LinearLayout row = new LinearLayout(this);
+                 row.setOrientation(LinearLayout.HORIZONTAL);
+                 Button bYes = createPopupButton("نعم، متأكد", "#DC2626");
+                 LinearLayout.LayoutParams yp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                 yp.setMargins(0, 6, 8, 6);
+                 bYes.setLayoutParams(yp);
+                 bYes.setOnClickListener(v -> {
+                     dismissPopupDirect();
+                     if (onConfirm != null) onConfirm.run();
+                 });
+                 Button bNo = createPopupButton("إلغاء", "#4B5563");
+                 LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                 np.setMargins(8, 6, 0, 6);
+                 bNo.setLayoutParams(np);
+                 bNo.setOnClickListener(v -> dismissPopupDirect());
+                 row.addView(bYes);
+                 row.addView(bNo);
+                 box.addView(row);
+                 showPopupView(box, null);
+             }
+             private void loadScenarioSteps(List<StepItem> loaded) {
+                 for (StepItem old : steps) removeStepViews(old);
+                 steps.clear();
+                 for (StepItem s : loaded) {
+                     createStepViews(s);
+                     steps.add(s);
+                 }
+                 normalizeStepNumbers();
+                 applyVisibilityRules();
+                 triggerEmergencyAutoSave();
+                 updateHudText("Red Clicker | تم تحميل " + steps.size() + " خطوة");
+             }
+             private List<Integer> getSortedUniqueSteps() {
+                 List<Integer> unique = new ArrayList<>();
+                 for (StepItem s : steps) {
+                     if (!unique.contains(s.stepNum)) unique.add(s.stepNum);
+                 }
+                 Collections.sort(unique);
+                 return unique;
+             }
+             private void startScenario(int startGroupIdx) {
+                 if (steps.isEmpty()) {
+                     showSingleToast("أضف خطوات أولاً من زر (+)");
+                     return;
+                 }
+                 for (StepItem s : steps) s.currentJumpCount = 0;
+                 isRunning = true;
+                 isPaused = false;
+                 currentGroupIndex = startGroupIdx;
+                 currentSubRepeat = 0;
+                 currentLoopCycle = 1;
+                 shrinkHandler.removeCallbacksAndMessages(null);
+                 buildBarLayout.setVisibility(View.GONE);
+                 bubbleView.setVisibility(View.GONE);
+                 playBarLayout.setVisibility(View.VISIBLE);
+                 btnPauseResume.setText("⏸");
+                 setMarkersTouchable(false);
+                 runCurrentGroup();
+             }
+             private void startScenarioFromStepNum(int stepNum) {
+                 List<Integer> unique = getSortedUniqueSteps();
+                 int idx = unique.indexOf(stepNum);
+                 startScenario(Math.max(0, idx));
+             }
+             private void togglePauseResume() {
+                 if (!isRunning) return;
+                 isPaused = !isPaused;
+                 btnPauseResume.setText(isPaused ? "▶" : "⏸");
+                 if (isPaused) {
+                     handler.removeCallbacksAndMessages(null);
+                     clearAllHighlights();
+                     updateHudText("مؤقت ⏸ | خطوة " + (currentGroupIndex + 1));
+                 } else {
+                     runCurrentGroup();
+                 }
+             }
+             private void skipCurrentStep() {
+                 if (!isRunning) return;
+                 handler.removeCallbacksAndMessages(null);
+                 clearAllHighlights();
+                 currentSubRepeat = 0;
+                 currentGroupIndex++;
+                 runCurrentGroup();
+             }
+             private void stopScenario() {
+                 isRunning = false;
+                 isPaused = false;
+                 handler.removeCallbacksAndMessages(null);
+                 clearAllHighlights();
+                 setMarkersTouchable(true);
+                 playBarLayout.setVisibility(View.GONE);
+                 buildBarLayout.setVisibility(View.VISIBLE);
+                 updateHudText("توقف ⏹ | جاهز");
+                 scheduleAutoShrink();
+             }
+             private void setMarkersTouchable(boolean touchable) {
+                 for (StepItem s : steps) {
+                     int flags = touchable
+                         ? (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+                         : (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+                     if (s.primaryView != null && s.primaryParams != null) {
+                         s.primaryParams.flags = flags;
+                         wm.updateViewLayout(s.primaryView, s.primaryParams);
+                     }
+                     if (s.secondaryView != null && s.secondaryParams != null) {
+                         s.secondaryParams.flags = flags;
+                         wm.updateViewLayout(s.secondaryView, s.secondaryParams);
+                     }
+                 }
+             }
+             private void clearAllHighlights() {
+                 for (StepItem s : steps) {
+                     if (s.primaryView != null) s.primaryView.setHighlighted(false);
+                     if (s.secondaryView != null) s.secondaryView.setHighlighted(false);
+                 }
+             }
+             private void runCurrentGroup() {
+                 if (!isRunning || isPaused || steps.isEmpty()) return;
+                 final List<Integer> uniqueSteps = getSortedUniqueSteps();
+                 if (currentGroupIndex >= uniqueSteps.size()) {
+                     currentGroupIndex = 0;
+                     currentSubRepeat = 0;
+                     currentLoopCycle++;
+                     for (StepItem s : steps) s.currentJumpCount = 0;
+                 }
+                 final int stepNum = uniqueSteps.get(currentGroupIndex);
+                 final List<StepItem> group = new ArrayList<>();
+                 for (StepItem s : steps) {
+                     if (s.stepNum == stepNum) group.add(s);
+                 }
+                 final StepItem leader = group.get(0);
+                 final int totalReps = Math.max(1, leader.repeatCount);
+                 updateHudText("خطوة " + stepNum + "/" + uniqueSteps.size()
+                     + (totalReps > 1 ? " (تكرار " + (currentSubRepeat + 1) + "/" + totalReps + ")" : "")
+                     + " | دورة " + currentLoopCycle);
+                 SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                 final int defRandMs = prefs.getInt("def_rand_ms", 35);
+                 int leaderRandMs = leader.useCustomRandom ? leader.customRandMs : defRandMs;
+                 int waitMs = leader.delayMs;
+                 if (leader.useRandom && leaderRandMs > 0) {
+                     waitMs += random.nextInt(leaderRandMs * 2 + 1) - leaderRandMs;
+                 }
+                 waitMs = Math.max(15, waitMs);
+                 handler.postDelayed(() -> {
+                     if (!isRunning || isPaused) return;
+                     if (leader.type == StepItem.TYPE_VISION_CHECK) {
+                         evaluateConditionWithOptionalWait(leader, uniqueSteps, true);
+                         return;
+                     }
+                     if (leader.useCondition && leader.checkBeforeTap) {
+                         evaluateConditionWithOptionalWait(leader, uniqueSteps, false);
+                         return;
+                     }
+                     executeGroupGestures(group, leader, uniqueSteps, totalReps);
+                 }, waitMs);
+             }
+             private void hideMarkersForCapture(StepItem leader) {
+                 int x1 = 0, y1 = 0, x2 = 0, y2 = 0, w1 = 0, h1 = 0, w2 = 0, h2 = 0;
+                 boolean isB = false, hasArea = false;
+                 if (leader.useCondition && leader.condAMode != 0) {
+                     if (leader.condAMode == 1) { x1 = leader.condAX1; y1 = leader.condAY1; w1 = leader.condABoxW; h1 = leader.condABoxH; hasArea = true; }
+                     else if (leader.condAMode == 2) { x1 = Math.min(leader.condAX1, leader.condAX2); y1 = Math.min(leader.condAY1, leader.condAY2); w1 = Math.abs(leader.condAX2 - leader.condAX1); h1 = Math.abs(leader.condAY2 - leader.condAY1); hasArea = true; }
+                     else if (leader.condAMode == 3) { x1 = leader.condAOcrCx; y1 = leader.condAOcrCy; w1 = leader.condAOcrW; h1 = leader.condAOcrH; hasArea = true; }
+                 }
+                 if (hasArea) {
+                     for (StepItem s : steps) {
+                         if (s.primaryView != null) {
+                             int[] loc = new int[2]; s.primaryView.getLocationOnScreen(loc);
+                             int cx = loc[0] + s.primaryView.getWidth()/2, cy = loc[1] + s.primaryView.getHeight()/2;
+                             if (Math.abs(cx - x1) <= w1/2 + 40 && Math.abs(cy - y1) <= h1/2 + 40) {
+                                 s.primaryView.setVisibility(View.GONE);
+                             }
+                         }
+                         if (s.secondaryView != null) {
+                             int[] loc = new int[2]; s.secondaryView.getLocationOnScreen(loc);
+                             int cx = loc[0] + s.secondaryView.getWidth()/2, cy = loc[1] + s.secondaryView.getHeight()/2;
+                             if (Math.abs(cx - x1) <= w1/2 + 40 && Math.abs(cy - y1) <= h1/2 + 40) {
+                                 s.secondaryView.setVisibility(View.GONE);
+                             }
+                         }
+                     }
+                 }
+             }
+             private void evaluateConditionWithOptionalWait(final StepItem leader, final List<Integer> uniqueSteps, final boolean isStandaloneVision) {
+                 final long startTime = System.currentTimeMillis();
+                 final int[] consecutiveHits = new int[]{0};
+                 final Runnable[] checkLoopRef = new Runnable[1];
+                 checkLoopRef[0] = () -> {
+                     if (!isRunning || isPaused) return;
+                     hideMarkersForCapture(leader);
+                     Choreographer.getInstance().postFrameCallback(f1 -> Choreographer.getInstance().postFrameCallback(f2 -> captureScreenAsync(false, bmp -> {
+                         applyVisibilityRules();
+                         if (!isRunning || isPaused) {
+                             if (bmp != null && !bmp.isRecycled()) bmp.recycle();
+                             return;
+                         }
+                         VisionHelper.evaluateStepAsync(leader, bmp, (matched, valA, valB) -> {
+                             if (bmp != null && !bmp.isRecycled()) bmp.recycle();
+                             if (matched) {
+                                 consecutiveHits[0]++;
+                                 if (consecutiveHits[0] >= Math.max(1, leader.condConfirmCount)) {
+                                     handleConditionDecision(leader, uniqueSteps, leader.condSuccessAction, leader.condSuccessJumpStep, isStandaloneVision);
+                                     return;
+                                 }
+                                 handler.postDelayed(checkLoopRef[0], Math.max(60, leader.condRetryIntervalMs));
+                             } else {
+                                 consecutiveHits[0] = 0;
+                                 if (!leader.condWaitMode) {
+                                     handleConditionDecision(leader, uniqueSteps, leader.condFailAction, leader.condFailJumpStep, true);
+                                 } else {
+                                     long elapsed = System.currentTimeMillis() - startTime;
+                                     if (elapsed >= leader.condWaitTimeoutMs) {
+                                         handleConditionDecision(leader, uniqueSteps, leader.condTimeoutAction, leader.condTimeoutJumpStep, true);
+                                     } else {
+                                         updateHudText("⏳ انتظار الشرط... (" + ((leader.condWaitTimeoutMs - elapsed) / 1000 + 1) + "s)");
+                                         handler.postDelayed(checkLoopRef[0], Math.max(80, leader.condRetryIntervalMs));
+                                     }
+                                 }
+                             }
+                         });
+                     })));
+                 };
+                 checkLoopRef[0].run();
+             }
+             private void handleConditionDecision(StepItem leader, List<Integer> uniqueSteps, int actionType, int jumpTarget, boolean skipTapExecution) {
+                 if (!isRunning || isPaused) return;
+                 if (actionType == 3) {
+                     stopScenario();
+                     showSingleToast("⏹ تم إيقاف السيناريو بناءً على الشرط البصري");
+                     return;
+                 }
+                 if (actionType == 2) {
+                     int idx = uniqueSteps.indexOf(jumpTarget);
+                     currentGroupIndex = (idx >= 0) ? idx : 0;
+                     currentSubRepeat = 0;
+                     handler.postDelayed(this::runCurrentGroup, 40);
+                     return;
+                 }
+                 if (actionType == 1 || skipTapExecution) {
+                     currentSubRepeat = 0;
+                     currentGroupIndex++;
+                     handler.postDelayed(this::runCurrentGroup, 40);
+                     return;
+                 }
+                 final List<StepItem> group = new ArrayList<>();
+                 for (StepItem s : steps) {
+                     if (s.stepNum == leader.stepNum) group.add(s);
+                 }
+                 executeGroupGestures(group, leader, uniqueSteps, Math.max(1, leader.repeatCount));
+             }
+             private void executeGroupGestures(final List<StepItem> group, final StepItem leader, final List<Integer> uniqueSteps, final int totalReps) {
+                 if (!isRunning || isPaused) return;
+                 clearAllHighlights();
+                 for (StepItem s : group) {
+                     if (s.primaryView != null) s.primaryView.setHighlighted(true);
+                     if (s.secondaryView != null) s.secondaryView.setHighlighted(true);
+                 }
+                 if (leader.type == StepItem.TYPE_JUMP) {
+                     if (leader.currentJumpCount < leader.jumpRepeatCount) {
+                         leader.currentJumpCount++;
+                         int targetIdx = uniqueSteps.indexOf(leader.jumpTargetStep);
+                         currentGroupIndex = (targetIdx >= 0) ? targetIdx : 0;
+                     } else {
+                         leader.currentJumpCount = 0;
+                         currentGroupIndex++;
+                     }
+                     currentSubRepeat = 0;
+                     handler.postDelayed(this::runCurrentGroup, 50);
+                     return;
+                 }
+                 SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                 final int defRandPx = prefs.getInt("def_rand_px", 11);
+                 final int defRandDur = prefs.getInt("def_rand_dur", 15);
+                 DisplayMetrics dm = getRealDisplayMetrics();
+                 int maxScreenDim = Math.max(dm.widthPixels, dm.heightPixels) - 2;
+                 GestureDescription.Builder builder = new GestureDescription.Builder();
+                 int strokeCount = 0;
+                 for (StepItem s : group) {
+                     if (strokeCount >= 10 || s.type == StepItem.TYPE_VISION_CHECK) continue;
+                     int sRandPx = s.useCustomRandom ? s.customRandPx : defRandPx;
+                     int sRandDur = s.useCustomRandom ? s.customRandDur : defRandDur;
+                     int[] loc1 = new int[2];
+                     s.primaryView.getLocationOnScreen(loc1);
+                     float x1 = loc1[0] + (s.primaryView.getWidth() / 2f);
+                     float y1 = loc1[1] + (s.primaryView.getHeight() / 2f);
+                     if (s.useRandom && sRandPx > 0) {
+                         x1 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
+                         y1 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
+                     }
+                     x1 = Math.max(1f, Math.min(maxScreenDim, x1));
+                     y1 = Math.max(1f, Math.min(maxScreenDim, y1));
+                     int dur = s.durationMs;
+                     if (s.useRandom && sRandDur > 0) {
+                         dur += random.nextInt(sRandDur * 2 + 1) - sRandDur;
+                     }
+                     dur = Math.max(20, dur);
+                     if (s.type == StepItem.TYPE_TAP) {
+                         Path p = new Path();
+                         p.moveTo(x1, y1);
+                         builder.addStroke(new GestureDescription.StrokeDescription(p, 0, dur));
+                         strokeCount++;
+                     } else if (s.type == StepItem.TYPE_SWIPE && s.secondaryView != null) {
+                         int[] loc2 = new int[2];
+                         s.secondaryView.getLocationOnScreen(loc2);
+                         float x2 = loc2[0] + (s.secondaryView.getWidth() / 2f);
+                         float y2 = loc2[1] + (s.secondaryView.getHeight() / 2f);
+                         if (s.useRandom && sRandPx > 0) {
+                             x2 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
+                             y2 += random.nextInt(sRandPx * 2 + 1) - sRandPx;
+                         }
+                         x2 = Math.max(1f, Math.min(maxScreenDim, x2));
+                         y2 = Math.max(1f, Math.min(maxScreenDim, y2));
+                         Path p = new Path();
+                         p.moveTo(x1, y1);
+                         p.lineTo(x2, y2);
+                         builder.addStroke(new GestureDescription.StrokeDescription(p, 0, Math.max(80, dur)));
+                         strokeCount++;
+                     } else if ((s.type == StepItem.TYPE_ZOOM_OUT || s.type == StepItem.TYPE_ZOOM_IN) && s.secondaryView != null && strokeCount <= 8) {
+                         int[] loc2 = new int[2];
+                         s.secondaryView.getLocationOnScreen(loc2);
+                         float x2 = Math.max(1f, Math.min(maxScreenDim, loc2[0] + (s.secondaryView.getWidth() / 2f)));
+                         float y2 = Math.max(1f, Math.min(maxScreenDim, loc2[1] + (s.secondaryView.getHeight() / 2f)));
+                         float midX = (x1 + x2) / 2f;
+                         float midY = (y1 + y2) / 2f;
+                         float innerX1 = midX + (x1 - midX) * 0.28f;
+                         float innerY1 = midY + (y1 - midY) * 0.28f;
+                         float innerX2 = midX + (x2 - midX) * 0.28f;
+                         float innerY2 = midY + (y2 - midY) * 0.28f;
+                         Path p1 = new Path();
+                         Path p2 = new Path();
+                         if (s.type == StepItem.TYPE_ZOOM_OUT) {
+                             p1.moveTo(x1, y1); p1.lineTo(innerX1, innerY1);
+                             p2.moveTo(x2, y2); p2.lineTo(innerX2, innerY2);
+                         } else {
+                             p1.moveTo(innerX1, innerY1); p1.lineTo(x1, y1);
+                             p2.moveTo(innerX2, innerY2); p2.lineTo(x2, y2);
+                         }
+                         int zDur = Math.max(120, dur);
+                         builder.addStroke(new GestureDescription.StrokeDescription(p1, 0, zDur));
+                         builder.addStroke(new GestureDescription.StrokeDescription(p2, 0, zDur));
+                         strokeCount += 2;
+                     }
+                 }
+                 if (strokeCount == 0) {
+                     afterGestureFinish(leader, uniqueSteps, totalReps);
+                     return;
+                 }
+                 dispatchGesture(builder.build(), new GestureResultCallback() {
+                     @Override
+                     public void onCompleted(GestureDescription gestureDescription) {
+                         afterGestureFinish(leader, uniqueSteps, totalReps);
+                     }
+                     @Override
+                     public void onCancelled(GestureDescription gestureDescription) {
+                         afterGestureFinish(leader, uniqueSteps, totalReps);
+                     }
+                 }, null);
+             }
+             private void afterGestureFinish(StepItem leader, List<Integer> uniqueSteps, int totalReps) {
+                 clearAllHighlights();
+                 if (leader.useCondition && !leader.checkBeforeTap && leader.type != StepItem.TYPE_VISION_CHECK) {
+                     evaluateConditionWithOptionalWait(leader, uniqueSteps, true);
+                     return;
+                 }
+                 currentSubRepeat++;
+                 if (currentSubRepeat < totalReps) {
+                     runCurrentGroup();
+                 } else {
+                     currentSubRepeat = 0;
+                     currentGroupIndex++;
+                     runCurrentGroup();
+                 }
+             }
+             private LinearLayout createPopupContainer(String titleText) {
+                 LinearLayout box = new LinearLayout(this);
+                 box.setOrientation(LinearLayout.VERTICAL);
+                 box.setPadding(26, 20, 26, 22);
+                 GradientDrawable bg = new GradientDrawable();
+                 bg.setColor(Color.parseColor("#F518181B"));
+                 bg.setCornerRadius(26f);
+                 bg.setStroke(3, Color.parseColor("#DC2626"));
+                 box.setBackgroundDrawable(bg);
+                 box.setClickable(true);
+                 LinearLayout topRow = new LinearLayout(this);
+                 topRow.setOrientation(LinearLayout.HORIZONTAL);
+                 topRow.setGravity(Gravity.CENTER_VERTICAL);
+                 topRow.setPadding(0, 0, 0, 12);
+                 TextView btnX = new TextView(this);
+                 btnX.setText("✖");
+                 btnX.setTextColor(Color.WHITE);
+                 btnX.setTextSize(15);
+                 btnX.setGravity(Gravity.CENTER);
+                 GradientDrawable xBg = new GradientDrawable();
+                 xBg.setShape(GradientDrawable.OVAL);
+                 xBg.setColor(Color.parseColor("#DC2626"));
+                 btnX.setBackgroundDrawable(xBg);
+                 LinearLayout.LayoutParams xlp = new LinearLayout.LayoutParams(66, 66);
+                 xlp.setMargins(0, 0, 14, 0);
+                 btnX.setLayoutParams(xlp);
+                 btnX.setOnClickListener(v -> saveAndDismissPopup());
+                 TextView title = new TextView(this);
+                 title.setText(titleText);
+                 title.setTextColor(Color.WHITE);
+                 title.setTextSize(14);
+                 title.getPaint().setFakeBoldText(true);
+                 title.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                 topRow.addView(btnX);
+                 topRow.addView(title);
+                 box.addView(topRow);
+                 return box;
+             }
+             private EditText createPopupInput(LinearLayout parent, String label, String val, boolean numeric, boolean withQuickChips) {
+                 TextView tv = new TextView(this);
+                 tv.setText(label);
+                 tv.setTextColor(Color.parseColor("#E4E4E7"));
+                 tv.setTextSize(12);
+                 tv.setPadding(0, 8, 0, 4);
+                 parent.addView(tv);
+                 LinearLayout inputRow = new LinearLayout(this);
+                 inputRow.setOrientation(LinearLayout.HORIZONTAL);
+                 inputRow.setGravity(Gravity.CENTER_VERTICAL);
+                 final EditText et = new EditText(this);
+                 if (numeric) et.setInputType(InputType.TYPE_CLASS_NUMBER);
+                 else et.setInputType(InputType.TYPE_CLASS_TEXT);
+                 et.setSingleLine(true);
+                 et.setImeOptions(EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+                 et.setOnEditorActionListener((v, actionId, event) -> {
+                     if (actionId == EditorInfo.IME_ACTION_DONE || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                         if (imm != null) imm.hideSoftInputFromWindow(et.getWindowToken(), 0);
+                         et.clearFocus();
+                         return true;
+                     }
+                     return false;
+                 });
+                 et.setText(val);
+                 et.setTextColor(Color.WHITE);
+                 GradientDrawable bg = new GradientDrawable();
+                 bg.setColor(Color.parseColor("#27272A"));
+                 bg.setCornerRadius(12f);
+                 bg.setStroke(2, Color.parseColor("#3F3F46"));
+                 et.setBackgroundDrawable(bg);
+                 et.setPadding(18, 10, 18, 10);
+                 et.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                 inputRow.addView(et);
+                 if (withQuickChips) {
+                     Button bClear = new Button(this);
+                     bClear.setText("✖");
+                     bClear.setTextColor(Color.WHITE);
+                     bClear.setTextSize(11);
+                     GradientDrawable cBg = new GradientDrawable();
+                     cBg.setColor(Color.parseColor("#991B1B"));
+                     cBg.setCornerRadius(10f);
+                     bClear.setBackgroundDrawable(cBg);
+                     LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(72, 66);
+                     clp.setMargins(8, 0, 0, 0);
+                     bClear.setLayoutParams(clp);
+                     bClear.setOnClickListener(v -> et.setText("0"));
+                     inputRow.addView(bClear);
+                 }
+                 parent.addView(inputRow);
+                 if (withQuickChips) {
+                     LinearLayout chipsRow = new LinearLayout(this);
+                     chipsRow.setOrientation(LinearLayout.HORIZONTAL);
+                     chipsRow.setPadding(0, 5, 0, 3);
+                     int[] increments = {50, 100, 500, 1000};
+                     for (final int inc : increments) {
+                         Button chip = new Button(this);
+                         chip.setText("+" + inc);
+                         chip.setTextColor(Color.WHITE);
+                         chip.setTextSize(11);
+                         chip.setPadding(4, 2, 4, 2);
+                         GradientDrawable chBg = new GradientDrawable();
+                         chBg.setColor(Color.parseColor("#3F3F46"));
+                         chBg.setCornerRadius(10f);
+                         chip.setBackgroundDrawable(chBg);
+                         LinearLayout.LayoutParams chLp = new LinearLayout.LayoutParams(0, 62, 1f);
+                         chLp.setMargins(3, 0, 3, 0);
+                         chip.setLayoutParams(chLp);
+                         chip.setOnClickListener(v -> {
+                             int cur = 0;
+                             try { cur = Integer.parseInt(et.getText().toString().trim()); } catch (Exception ignored) {}
+                             et.setText(String.valueOf(cur + inc));
+                         });
+                         chipsRow.addView(chip);
+                     }
+                     parent.addView(chipsRow);
+                 }
+                 return et;
+             }
+             private Button createPopupButton(String text, String colorHex) {
+                 Button b = new Button(this);
+                 b.setText(text);
+                 b.setTextColor(Color.WHITE);
+                 b.setTextSize(12);
+                 GradientDrawable bg = new GradientDrawable();
+                 bg.setColor(Color.parseColor(hex));
+                 bg.setCornerRadius(16f);
+                 b.setBackgroundDrawable(bg);
+                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                 lp.setMargins(0, 6, 0, 5);
+                 b.setLayoutParams(lp);
+                 return b;
+             }
+             private void showPopupView(LinearLayout contentBox, final Runnable onAutoSave) {
+                 dismissPopupDirect();
+                 activePopupAutoSave = onAutoSave;
+                 FrameLayout fullScreenBackdrop = new FrameLayout(this) {
+                     @Override
+                     public boolean dispatchKeyEvent(KeyEvent event) {
+                         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+                             saveAndDismissPopup();
+                             return true;
+                         }
+                         return super.dispatchKeyEvent(event);
+                     }
+                 };
+                 fullScreenBackdrop.setBackgroundColor(Color.argb(145, 0, 0, 0));
+                 fullScreenBackdrop.setFocusableInTouchMode(true);
+                 fullScreenBackdrop.requestFocus();
+                 fullScreenBackdrop.setOnClickListener(v -> saveAndDismissPopup());
+                 ScrollView scroll = new ScrollView(this);
+                 scroll.setClickable(true);
+                 scroll.addView(contentBox);
+                 DisplayMetrics dm = getRealDisplayMetrics();
+                 FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
+                     (int) (dm.widthPixels * 0.90f),
+                     FrameLayout.LayoutParams.WRAP_CONTENT,
+                     Gravity.CENTER);
+                 fullScreenBackdrop.addView(scroll, cardLp);
+                 WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                     WindowManager.LayoutParams.MATCH_PARENT,
+                     WindowManager.LayoutParams.MATCH_PARENT,
+                     WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                     PixelFormat.TRANSLUCENT);
+                 lp.gravity = Gravity.CENTER;
+                 lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+                 activePopupDialog = fullScreenBackdrop;
+                 wm.addView(activePopupDialog, lp);
+             }
+             private void saveAndDismissPopup() {
+                 if (activePopupAutoSave != null) {
+                     try { activePopupAutoSave.run(); } catch (Exception ignored) {}
+                     activePopupAutoSave = null;
+                 }
+                 dismissPopupDirect();
+             }
+             private void dismissPopupDirect() {
+                 activePopupAutoSave = null;
+                 if (activePopupDialog != null) {
+                     try { wm.removeView(activePopupDialog); } catch (Exception ignored) {}
+                     activePopupDialog = null;
+                 }
+             }
+             private void closeAll() {
+                 stopScenario();
+                 dismissPopupDirect();
+                 cancelPersistentControlNotification();
+                 stopScreenSharingCompletely();
+                 if (pickerOverlayView != null) {
+                     try { wm.removeView(pickerOverlayView); } catch (Exception ignored) {}
+                     pickerOverlayView = null;
+                 }
+                 if (freezeOverlayView != null) {
+                     try { wm.removeView(freezeOverlayView); } catch (Exception ignored) {}
+                     freezeOverlayView = null;
+                     isGameTouchFrozen = false;
+                 }
+                 for (StepItem s : steps) removeStepViews(s);
+                 steps.clear();
+                 if (vectorOverlay != null) {
+                     try { wm.removeView(vectorOverlay); } catch (Exception ignored) {}
+                     vectorOverlay = null;
+                 }
+                 if (hudView != null) {
+                     try { wm.removeView(hudView); } catch (Exception ignored) {}
+                     hudView = null;
+                 }
+                 if (rootBarContainer != null) {
+                     try { wm.removeView(rootBarContainer); } catch (Exception ignored) {}
+                     rootBarContainer = null;
+                 }
+             }
+             @Override
+             public void onAccessibilityEvent(AccessibilityEvent event) {
+                 if (event == null || !isRunning) return;
+                 SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                 String pkg = event.getPackageName() != null ? event.getPackageName().toString().toLowerCase() : "";
+                 if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                     if (prefs.getBoolean("pause_on_call", true) && !isPaused) {
+                         if (pkg.contains("incallui") || pkg.contains("telecom") || pkg.contains("dialer") || pkg.contains("phone")) {
+                             togglePauseResume();
+                             showSingleToast("📞 تم إيقاف النقر مؤقتاً بسبب مكالمة هاتفية");
+                             return;
+                         }
+                     }
+                     if (prefs.getBoolean("stop_on_home", false) && pkg.contains("launcher")) {
+                         stopScenario();
+                         return;
+                     }
+                 }
+                 if (event.getEventType() == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED && !isPaused) {
+                     if (pkg.contains("smartclicker") || pkg.contains("systemui")) return;
+                     int notifMode = prefs.getInt("notif_mode", 1);
+                     long now = System.currentTimeMillis();
+                     if (now - lastNotifActionTime < 2500) return;
+                     lastNotifActionTime = now;
+                     if (notifMode == 1) {
+                         handler.removeCallbacksAndMessages(null);
+                         DisplayMetrics dm = getRealDisplayMetrics();
+                         Path swipeUp = new Path();
+                         swipeUp.moveTo(dm.widthPixels / 2f, 220f);
+                         swipeUp.lineTo(dm.widthPixels / 2f, 15f);
+                         GestureDescription.Builder b = new GestureDescription.Builder();
+                         b.addStroke(new GestureDescription.StrokeDescription(swipeUp, 0, 140));
+                         dispatchGesture(b.build(), null, null);
+                         handler.postDelayed(this::runCurrentGroup, 400);
+                     } else if (notifMode == 2) {
+                         handler.removeCallbacksAndMessages(null);
+                         updateHudText("⏳ انتظار اختفاء الإشعار...");
+                         handler.postDelayed(this::runCurrentGroup, 3500);
+                     }
+                 }
+             }
+             @Override public void onInterrupt() {}
           """)
           PYEOF
       - name: Setup Gradle
