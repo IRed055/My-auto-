@@ -4138,7 +4138,7 @@ jobs:
                       }
                   }
               """)
-              append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
+          append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
                   private LinearLayout createPopupContainer(String titleText) {
                       LinearLayout box = new LinearLayout(this);
                       box.setOrientation(LinearLayout.VERTICAL);
