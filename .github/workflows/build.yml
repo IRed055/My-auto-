@@ -3397,7 +3397,7 @@ jobs:
                       }
                   }
               """)
-              append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
+          append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
                   private void showQuickNextSettingsDialog() {
                       final SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
                       LinearLayout box = createPopupContainer("⚙️ إعداد سريع شامل للخطوات القادمة");
@@ -3734,7 +3734,7 @@ jobs:
                       showPopupView(box, null);
                   }
               """)
-              append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
+          append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
                   private void showConfirmDialog(String title, String message, final Runnable onConfirm) {
                       LinearLayout box = createPopupContainer("⚠️ " + title);
                       TextView tv = new TextView(this);
