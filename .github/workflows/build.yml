@@ -1230,6 +1230,7 @@ jobs:
              import android.util.DisplayMetrics;
              import android.view.Gravity;
              import android.view.MotionEvent;
+             import android.view.Choreographer;
              import android.view.View;
              import android.view.WindowManager;
              import android.widget.Button;
@@ -1260,38 +1261,39 @@ jobs:
                      void onCancel();
                  }
                  public interface OcrEvalCallback {
-                     void onResult(boolean isMatch, long readValue);
+                     void onResult(boolean isMatch, long readValA, long readValB);
+                 }
                  }
                  private static final TextRecognizer textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
                  public static void evaluateStepAsync(final StepItem s, final Bitmap bmp, final OcrEvalCallback callback) {
-                     if (bmp == null) { callback.onResult(false, -1); return; }
+                     if (bmp == null) { callback.onResult(false, -1, -1); return; }
                      boolean isAModeOcr = (s.condAMode == 3);
                      boolean isBModeOcr = (s.condBMode == 3);
                      if (!isAModeOcr && !isBModeOcr) {
                          boolean res = evaluateStepSync(s, bmp);
-                         callback.onResult(res, -1);
+                         callback.onResult(res, -1, -1);
                          return;
-                     }
-                     evaluateSubAsync(s, false, s.condAMode, bmp, (resA, valA) -> {
-                         if (s.condLogic == 0 || !isBModeOcr) {
-                             boolean resB = false;
-                             if (s.condLogic > 0) {
-                                 resB = evaluateSingleSub(bmp, s.condBMode, s.condBX1, s.condBY1, s.condBX2, s.condBY2,
-                                     s.condBBoxW, s.condBBoxH, s.condBColor, s.condBGrid, s.condBTol, s.condBAreaPct, s.condBBarPct);
-                             }
-                             boolean finalRes = (s.condLogic == 0) ? resA : ((s.condLogic == 1) ? (resA && resB) : (resA || resB));
-                             callback.onResult(finalRes, valA);
-                             return;
-                         }
-                         evaluateSubAsync(s, true, s.condBMode, bmp, (resB, valB) -> {
-                             boolean finalRes;
-                             if (s.condLogic == 1) finalRes = resA && resB;
-                             else if (s.condLogic == 2) finalRes = resA || resB;
-                             else finalRes = resA;
-                             callback.onResult(finalRes, valA);
-                         });
-                     });
-                 }
+                }
+                evaluateSubAsync(s, false, s.condAMode, bmp, (resA, valA) -> {
+                    if (s.condLogic == 0 || !isBModeOcr) {
+                        boolean resB = false;
+                        if (s.condLogic > 0) {
+                            resB = evaluateSingleSub(bmp, s.condBMode, s.condBX1, s.condBY1, s.condBX2, s.condBY2,
+                                s.condBBoxW, s.condBBoxH, s.condBColor, s.condBGrid, s.condBTol, s.condBAreaPct, s.condBBarPct);
+                        }
+                        boolean finalRes = (s.condLogic == 0) ? resA : ((s.condLogic == 1) ? (resA && resB) : (resA || resB));
+                        callback.onResult(finalRes, valA, -1);
+                        return;
+                }
+                evaluateSubAsync(s, true, s.condBMode, bmp, (resB, valB) -> {
+                    boolean finalRes;
+                    if (s.condLogic == 1) finalRes = resA && resB;
+                    else if (s.condLogic == 2) finalRes = resA || resB;
+                    else finalRes = resA;
+                    callback.onResult(finalRes, valA, valB);
+                });
+            });
+          }
                  private interface SubEvalCallback { void onResult(boolean res, long val); }
                  private static void evaluateSubAsync(StepItem s, boolean isB, int mode, Bitmap bmp, final SubEvalCallback cb) {
                      if (mode != 3) {
@@ -3177,743 +3179,827 @@ jobs:
           """)
           # --- نهاية الجزء الرابع (4/5) ---
           append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
-                  private void showConditionDialog(final StepItem item) {
-                      LinearLayout box = createPopupContainer("👁️ الشرط البصري المتقدم للخطوة #" + item.stepNum);
-                      final CheckBox cbEnable = new CheckBox(this);
-                      cbEnable.setText("تفعيل الشرط البصري لهذه الخطوة");
-                      cbEnable.setTextColor(Color.WHITE);
-                      cbEnable.setChecked(item.useCondition || item.type == StepItem.TYPE_VISION_CHECK);
-                      if (item.type == StepItem.TYPE_VISION_CHECK) cbEnable.setEnabled(false);
-                      box.addView(cbEnable);
-                      if (item.type != StepItem.TYPE_VISION_CHECK) {
-                          final Button bTiming = createPopupButton(
-                              item.checkBeforeTap ? "⏱️ توقيت الفحص: قبل تنفيذ اللمسة (اضغط للتغيير)" : "⏱️ توقيت الفحص: بعد تنفيذ اللمسة (اضغط للتغيير)", "#374151");
-                          bTiming.setOnClickListener(v -> {
-                              item.checkBeforeTap = !item.checkBeforeTap;
-                              bTiming.setText(item.checkBeforeTap ? "⏱️ توقيت الفحص: قبل تنفيذ اللمسة (اضغط للتغيير)" : "⏱️ توقيت الفحص: بعد تنفيذ اللمسة (اضغط للتغيير)");
-                          });
-                          box.addView(bTiming);
-                      }
-                      final String[] logicLabels = {
-                          "🔗 الشروط المفعلة: الشرط (A) فقط",
-                          "🔗 الشروط المفعلة: يجب تحقق (A و B) معاً [AND]",
-                          "🔗 الشروط المفعلة: يكفي تحقق (A أو B) [OR]"
-                      };
-                      final LinearLayout secBContainer = new LinearLayout(this);
-                      secBContainer.setOrientation(LinearLayout.VERTICAL);
-                      final Button bLogic = createPopupButton(logicLabels[item.condLogic % 3], "#7C3AED");
-                      bLogic.setOnClickListener(v -> {
-                          item.condLogic = (item.condLogic + 1) % 3;
-                          bLogic.setText(logicLabels[item.condLogic]);
-                          secBContainer.setVisibility(item.condLogic > 0 ? View.VISIBLE : View.GONE);
-                      });
-                      box.addView(bLogic);
-                      final Runnable[] saveRef = new Runnable[1];
-                      final Runnable saveA = buildSubConditionUI(box, item, false, () -> {
-                          if (saveRef[0] != null) saveRef[0].run();
-                      });
-                      secBContainer.setVisibility(item.condLogic > 0 ? View.VISIBLE : View.GONE);
-                      final Runnable saveB = buildSubConditionUI(secBContainer, item, true, () -> {
-                          if (saveRef[0] != null) saveRef[0].run();
-                      });
-                      box.addView(secBContainer);
-                      TextView tvWaitHdr = new TextView(this);
-                      tvWaitHdr.setText("⏳ نظام الانتظار وإعادة الفحص:");
-                      tvWaitHdr.setTextColor(Color.parseColor("#FBBF24"));
-                      tvWaitHdr.setPadding(0, 14, 0, 4);
-                      box.addView(tvWaitHdr);
-                      final LinearLayout waitDetailsBox = new LinearLayout(this);
-                      waitDetailsBox.setOrientation(LinearLayout.VERTICAL);
-                      waitDetailsBox.setVisibility(item.condWaitMode ? View.VISIBLE : View.GONE);
-                      final Button bWaitMode = createPopupButton(
-                          item.condWaitMode ? "وضع الفحص: انتظار وإعادة فحص حتى المهلة (اضغط للتغيير)" : "وضع الفحص: فحص فوري لمرة واحدة فقط (اضغط للتغيير)", "#0891B2");
-                      bWaitMode.setOnClickListener(v -> {
-                          item.condWaitMode = !item.condWaitMode;
-                          bWaitMode.setText(item.condWaitMode ? "وضع الفحص: انتظار وإعادة فحص حتى المهلة (اضغط للتغيير)" : "وضع الفحص: فحص فوري لمرة واحدة فقط (اضغط للتغيير)");
-                          waitDetailsBox.setVisibility(item.condWaitMode ? View.VISIBLE : View.GONE);
-                      });
-                      box.addView(bWaitMode);
-                      final EditText etRetryInt = createPopupInput(waitDetailsBox, "الفترة بين كل فحص وآخر (مللي ثانية):", String.valueOf(item.condRetryIntervalMs), true, false);
-                      final EditText etTimeout = createPopupInput(waitDetailsBox, "أقصى مهلة انتظار قبل انتهاء الوقت (مللي ثانية):", String.valueOf(item.condWaitTimeoutMs), true, true);
-                      final EditText etConfirmCnt = createPopupInput(waitDetailsBox, "عدد مرات التحقق المتتالية المطلوبة (الافتراضي 1):", String.valueOf(item.condConfirmCount), true, false);
-                      box.addView(waitDetailsBox);
-                      TextView tvActHdr = new TextView(this);
-                      tvActHdr.setText("⚡ القرار والإجراءات عند الفحص:");
-                      tvActHdr.setTextColor(Color.parseColor("#34D399"));
-                      tvActHdr.setPadding(0, 14, 0, 4);
-                      box.addView(tvActHdr);
-                      final String[] actNames = {
-                          "نفّذ العملية وأكمل للخطوة التالية",
-                          "تخطَّ هذه الخطوة وانتقل للتالية",
-                          "اقفز إلى رقم الخطوة المحددة أدناه",
-                          "إيقاف السيناريو بالكامل"
-                      };
-                      final LinearLayout succJumpBox = new LinearLayout(this);
-                      succJumpBox.setOrientation(LinearLayout.VERTICAL);
-                      final EditText etSuccJump = createPopupInput(succJumpBox, "رقم خطوة القفز عند تحقق الشرط:", String.valueOf(item.condSuccessJumpStep), true, false);
-                      succJumpBox.setVisibility(item.condSuccessAction == 2 ? View.VISIBLE : View.GONE);
-                      final Button bSuccAct = createPopupButton("✅ عند التحقق: " + actNames[item.condSuccessAction % 4], "#16A34A");
-                      bSuccAct.setOnClickListener(v -> {
-                          item.condSuccessAction = (item.condSuccessAction + 1) % 4;
-                          bSuccAct.setText("✅ عند التحقق: " + actNames[item.condSuccessAction]);
-                          succJumpBox.setVisibility(item.condSuccessAction == 2 ? View.VISIBLE : View.GONE);
-                      });
-                      box.addView(bSuccAct);
-                      box.addView(succJumpBox);
-                      final LinearLayout failJumpBox = new LinearLayout(this);
-                      failJumpBox.setOrientation(LinearLayout.VERTICAL);
-                      final EditText etFailJump = createPopupInput(failJumpBox, "رقم خطوة القفز عند عدم تحقق الشرط:", String.valueOf(item.condFailJumpStep), true, false);
-                      failJumpBox.setVisibility(item.condFailAction == 2 ? View.VISIBLE : View.GONE);
-                      final Button bFailAct = createPopupButton("❌ عند عدم التحقق: " + actNames[item.condFailAction % 4], "#CA8A04");
-                      bFailAct.setOnClickListener(v -> {
-                          item.condFailAction = (item.condFailAction + 1) % 4;
-                          bFailAct.setText("❌ عند عدم التحقق: " + actNames[item.condFailAction]);
-                          failJumpBox.setVisibility(item.condFailAction == 2 ? View.VISIBLE : View.GONE);
-                      });
-                      box.addView(bFailAct);
-                      box.addView(failJumpBox);
-                      final LinearLayout timeoutJumpBox = new LinearLayout(this);
-                      timeoutJumpBox.setOrientation(LinearLayout.VERTICAL);
-                      final EditText etTimeoutJump = createPopupInput(timeoutJumpBox, "رقم خطوة القفز عند انتهاء المهلة:", String.valueOf(item.condTimeoutJumpStep), true, false);
-                      timeoutJumpBox.setVisibility(item.condTimeoutAction == 2 ? View.VISIBLE : View.GONE);
-                      final Button bTimeoutAct = createPopupButton("⌛ عند انتهاء المهلة: " + actNames[item.condTimeoutAction % 4], "#991B1B");
-                      bTimeoutAct.setOnClickListener(v -> {
-                          item.condTimeoutAction = (item.condTimeoutAction + 1) % 4;
-                          bTimeoutAct.setText("⌛ عند انتهاء المهلة: " + actNames[item.condTimeoutAction]);
-                          timeoutJumpBox.setVisibility(item.condTimeoutAction == 2 ? View.VISIBLE : View.GONE);
-                      });
-                      box.addView(bTimeoutAct);
-                      box.addView(timeoutJumpBox);
-                      final Runnable saveAllCond = () -> {
-                          try {
-                              item.useCondition = cbEnable.isChecked() || item.type == StepItem.TYPE_VISION_CHECK;
-                              saveA.run();
-                              saveB.run();
-                              item.condRetryIntervalMs = Math.max(50, Integer.parseInt(etRetryInt.getText().toString()));
-                              item.condWaitTimeoutMs = Math.max(200, Integer.parseInt(etTimeout.getText().toString()));
-                              item.condConfirmCount = Math.max(1, Integer.parseInt(etConfirmCnt.getText().toString()));
-                              item.condSuccessJumpStep = Math.max(1, Integer.parseInt(etSuccJump.getText().toString()));
-                              item.condFailJumpStep = Math.max(1, Integer.parseInt(etFailJump.getText().toString()));
-                              item.condTimeoutJumpStep = Math.max(1, Integer.parseInt(etTimeoutJump.getText().toString()));
-                              if (item.primaryView != null) item.primaryView.invalidate();
-                              triggerEmergencyAutoSave();
-                          } catch (Exception ignored) {}
-                      };
-                      saveRef[0] = saveAllCond;
-                      final TextView tvTestResultBox = new TextView(this);
-                      tvTestResultBox.setText("📊 اضغط زر الاختبار بالأسفل لرؤية النتيجة هنا مباشرة...");
-                      tvTestResultBox.setTextColor(Color.parseColor("#94A3B8"));
-                      tvTestResultBox.setTextSize(12);
-                      tvTestResultBox.setPadding(16, 14, 16, 14);
-                      GradientDrawable resBg = new GradientDrawable();
-                      resBg.setColor(Color.parseColor("#18181B"));
-                      resBg.setCornerRadius(12f);
-                      resBg.setStroke(2, Color.parseColor("#3F3F46"));
-                      tvTestResultBox.setBackgroundDrawable(resBg);
-                      LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                      rlp.setMargins(0, 10, 0, 10);
-                      tvTestResultBox.setLayoutParams(rlp);
-                      box.addView(tvTestResultBox);
-                      Button bTestNow = createPopupButton("🔍 اختبار الشرط ومعاينة نسبة الشريط/المنطقة الآن", "#0284C7");
-                      bTestNow.setOnClickListener(v -> {
-                          saveAllCond.run();
-                          tvTestResultBox.setText("⏳ جاري التقاط الشاشة وفحص الألوان بدقة...");
-                          tvTestResultBox.setTextColor(Color.parseColor("#FBBF24"));
-                          if (activePopupDialog != null) activePopupDialog.setVisibility(View.INVISIBLE);
-                          if (rootBarContainer != null) rootBarContainer.setVisibility(View.INVISIBLE);
-                          setAllMarkersVisibleTemp(false);
-                          handler.postDelayed(() -> captureScreenAsync(true, bmp -> {
-                              if (activePopupDialog != null) activePopupDialog.setVisibility(View.VISIBLE);
-                              if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
-                              setAllMarkersVisibleTemp(true);
-                              if (bmp == null) {
-                                  tvTestResultBox.setText("❌ فشل التقاط الشاشة! تأكد من منح الصلاحية.");
-                                  tvTestResultBox.setTextColor(Color.parseColor("#EF4444"));
-                                  return;
-                              }
-                              boolean overall = VisionHelper.evaluateStep(item, bmp);
-                              StringBuilder msg = new StringBuilder();
-                              msg.append(overall ? "✅ النتيجة: الشرط متحقق تماماً!" : "❌ النتيجة: الشرط غير متحقق حالياً");
-                              if (item.condAMode == 2) {
-                                  int fillA = VisionHelper.estimateBarFillPct(bmp, item.condAX1, item.condAY1, item.condAX2, item.condAY2, item.condAColor, item.condATol);
-                                  msg.append("\n📊 امتلاء شريط A: ").append(fillA).append("% (المطلوب >= ").append(item.condABarPct).append("%)");
-                              } else if (item.condAMode == 1) {
-                                  int areaA = VisionHelper.estimateAreaMatchPct(bmp, item.condAX1, item.condAY1, item.condABoxW, item.condABoxH, item.condAColor, item.condAGrid, item.condATol);
-                                  msg.append("\n📊 تطابق مربع A: ").append(areaA).append("% (المطلوب >= ").append(item.condAAreaPct).append("%)");
-                              }
-                              if (item.condLogic > 0) {
-                                  if (item.condBMode == 2) {
-                                      int fillB = VisionHelper.estimateBarFillPct(bmp, item.condBX1, item.condBY1, item.condBX2, item.condBY2, item.condBColor, item.condBTol);
-                                      msg.append("\n📊 امتلاء شريط B: ").append(fillB).append("% (المطلوب >= ").append(item.condBBarPct).append("%)");
-                                  } else if (item.condBMode == 1) {
-                                      int areaB = VisionHelper.estimateAreaMatchPct(bmp, item.condBX1, item.condBY1, item.condBBoxW, item.condBBoxH, item.condBColor, item.condBGrid, item.condBTol);
-                                      msg.append("\n📊 تطابق مربع B: ").append(areaB).append("% (المطلوب >= ").append(item.condBAreaPct).append("%)");
-                                  }
-                              }
-                              bmp.recycle();
-                              tvTestResultBox.setText(msg.toString());
-                              tvTestResultBox.setTextColor(overall ? Color.parseColor("#34D399") : Color.parseColor("#F87171"));
-                          }), 140);
-                      });
-                      box.addView(bTestNow);
-                      Button bDone = createPopupButton("💾 حفظ والعودة لإعدادات الخطوة", "#16A34A");
-                      bDone.setOnClickListener(v -> {
-                          saveAllCond.run();
-                          activePopupAutoSave = null;
-                          showEditStepDialog(item);
-                      });
-                      box.addView(bDone);
-                      showPopupView(box, saveAllCond);
-                  }
-                  private Runnable buildSubConditionUI(LinearLayout parent, final StepItem item, final boolean isB, final Runnable onBeforePick) {
-                      LinearLayout card = new LinearLayout(this);
-                      card.setOrientation(LinearLayout.VERTICAL);
-                      card.setPadding(18, 14, 18, 14);
-                      GradientDrawable cBg = new GradientDrawable();
-                      cBg.setColor(Color.parseColor("#222226"));
-                      cBg.setCornerRadius(16f);
-                      cBg.setStroke(2, Color.parseColor(isB ? "#10B981" : "#0891B2"));
-                      card.setBackgroundDrawable(cBg);
-                      LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                      clp.setMargins(0, 10, 0, 10);
-                      card.setLayoutParams(clp);
-                      String labelPrefix = isB ? "الشرط (B)" : "الشرط (A)";
-                      final String[] modeNames = {
-                          labelPrefix + " - النوع: فحص نقطة لون واحدة (اضغط للتغيير)",
-                          labelPrefix + " - النوع: فحص منطقة / مربع بكسلات (اضغط للتغيير)",
-                          labelPrefix + " - النوع: قياس امتلاء شريط بالمسطرة (اضغط للتغيير)"
-                      };
-                      final LinearLayout pixelBox = new LinearLayout(this);
-                      pixelBox.setOrientation(LinearLayout.VERTICAL);
-                      final LinearLayout areaBox = new LinearLayout(this);
-                      areaBox.setOrientation(LinearLayout.VERTICAL);
-                      final LinearLayout barBox = new LinearLayout(this);
-                      barBox.setOrientation(LinearLayout.VERTICAL);
-                      int curMode = isB ? item.condBMode : item.condAMode;
-                      final Button bMode = createPopupButton(modeNames[curMode % 3], isB ? "#059669" : "#0E7490");
-                      bMode.setOnClickListener(v -> {
-                          int m = isB ? ((item.condBMode + 1) % 3) : ((item.condAMode + 1) % 3);
-                          if (isB) item.condBMode = m; else item.condAMode = m;
-                          bMode.setText(modeNames[m]);
-                          pixelBox.setVisibility(m == 0 ? View.VISIBLE : View.GONE);
-                          areaBox.setVisibility(m == 1 ? View.VISIBLE : View.GONE);
-                          barBox.setVisibility(m == 2 ? View.VISIBLE : View.GONE);
-                      });
-                      card.addView(bMode);
-                      int savedCol = isB ? item.condBColor : item.condAColor;
-                      boolean isPicked = isB ? item.condBColorPicked : item.condAColorPicked;
-                      int x1 = isB ? item.condBX1 : item.condAX1;
-                      int y1 = isB ? item.condBY1 : item.condAY1;
-                      int x2 = isB ? item.condBX2 : item.condAX2;
-                      int y2 = isB ? item.condBY2 : item.condAY2;
-                      int bw = isB ? item.condBBoxW : item.condABoxW;
-                      int bh = isB ? item.condBBoxH : item.condABoxH;
-                      pixelBox.setVisibility(curMode == 0 ? View.VISIBLE : View.GONE);
-                      LinearLayout pxRow = new LinearLayout(this);
-                      pxRow.setOrientation(LinearLayout.HORIZONTAL);
-                      pxRow.setGravity(Gravity.CENTER_VERTICAL);
-                      View pxSwatch = createColorSwatchView(savedCol, isPicked);
-                      pxRow.addView(pxSwatch);
-                      Button bPickPx = createPopupButton(
-                          isPicked ? "🎯 تغيير البكسل واللون (" + x1 + "," + y1 + ")" : "🎯 تحديد البكسل واللون بالمنظار", "#2563EB");
-                      bPickPx.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                      bPickPx.setOnClickListener(v -> {
-                          onBeforePick.run();
-                          launchVisionPicker(item, isB, 0);
-                      });
-                      pxRow.addView(bPickPx);
-                      pixelBox.addView(pxRow);
-                      card.addView(pixelBox);
-                      areaBox.setVisibility(curMode == 1 ? View.VISIBLE : View.GONE);
-                      LinearLayout arRow = new LinearLayout(this);
-                      arRow.setOrientation(LinearLayout.HORIZONTAL);
-                      arRow.setGravity(Gravity.CENTER_VERTICAL);
-                      View arSwatch = createColorSwatchView(savedCol, isPicked);
-                      arRow.addView(arSwatch);
-                      Button bPickArea = createPopupButton("🔲 تحديد مربع المنطقة من الشاشة (" + bw + "x" + bh + ")", "#2563EB");
-                      bPickArea.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                      bPickArea.setOnClickListener(v -> {
-                          onBeforePick.run();
-                          launchVisionPicker(item, isB, 1);
-                      });
-                      arRow.addView(bPickArea);
-                      areaBox.addView(arRow);
-                      final EditText etAreaPct = createPopupInput(areaBox, "نسبة تطابق البكسلات المطلوبة داخل المربع % (مثلاً 70):",
-                          String.valueOf(isB ? item.condBAreaPct : item.condAAreaPct), true, false);
-                      card.addView(areaBox);
-                      barBox.setVisibility(curMode == 2 ? View.VISIBLE : View.GONE);
-                      LinearLayout brColorRow = new LinearLayout(this);
-                      brColorRow.setOrientation(LinearLayout.HORIZONTAL);
-                      brColorRow.setGravity(Gravity.CENTER_VERTICAL);
-                      View brSwatch = createColorSwatchView(savedCol, isPicked);
-                      brColorRow.addView(brSwatch);
-                      Button bPickBarCol = createPopupButton(
-                          isPicked ? "🎨 1. تغيير لون امتلاء الشريط المحفوظ" : "🎨 1. تحديد لون الجزء الممتلئ من الشريط", "#2563EB");
-                      bPickBarCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                      bPickBarCol.setOnClickListener(v -> {
-                          onBeforePick.run();
-                          launchVisionPicker(item, isB, 2);
-                      });
-                      brColorRow.addView(bPickBarCol);
-                      barBox.addView(brColorRow);
-                      Button bPickRuler = createPopupButton(
-                          "📏 2. تحديد مسطرة الشريط A(" + x1 + "," + y1 + ") ➔ B(" + x2 + "," + y2 + ")", "#0891B2");
-                      bPickRuler.setOnClickListener(v -> {
-                          onBeforePick.run();
-                          launchVisionPicker(item, isB, 3);
-                      });
-                      barBox.addView(bPickRuler);
-                      final EditText etBarPct = createPopupInput(barBox, "نسبة الامتلاء المطلوبة أو أعلى % (مثلاً 90):",
-                          String.valueOf(isB ? item.condBBarPct : item.condABarPct), true, false);
-                      card.addView(barBox);
-                      final EditText etTol = createPopupInput(card, "دقة تقارب اللون المسموحة % (من 50 إلى 100 - ينصح بـ 85):",
-                          String.valueOf(isB ? item.condBTol : item.condATol), true, false);
-                      parent.addView(card);
-                      return () -> {
-                          try {
-                              int tol = Math.max(50, Math.min(100, Integer.parseInt(etTol.getText().toString())));
-                              int aPct = Math.max(5, Math.min(100, Integer.parseInt(etAreaPct.getText().toString())));
-                              int bPct = Math.max(5, Math.min(100, Integer.parseInt(etBarPct.getText().toString())));
-                              if (isB) {
-                                  item.condBTol = tol;
-                                  item.condBAreaPct = aPct;
-                                  item.condBBarPct = bPct;
-                              } else {
-                                  item.condATol = tol;
-                                  item.condAAreaPct = aPct;
-                                  item.condABarPct = bPct;
-                              }
-                          } catch (Exception ignored) {}
-                      };
-                  }
-                  private View createColorSwatchView(int color, boolean picked) {
-                      TextView tv = new TextView(this);
-                      tv.setText(picked ? "✔" : "?");
-                      tv.setTextColor(Color.WHITE);
-                      tv.setGravity(Gravity.CENTER);
-                      GradientDrawable gd = new GradientDrawable();
-                      gd.setColor(picked ? color : Color.parseColor("#3F3F46"));
-                      gd.setCornerRadius(10f);
-                      gd.setStroke(2, Color.WHITE);
-                      tv.setBackgroundDrawable(gd);
-                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(72, 68);
-                      lp.setMargins(0, 0, 12, 0);
-                      tv.setLayoutParams(lp);
-                      return tv;
-                  }
-                  private void launchVisionPicker(final StepItem item, final boolean isB, final int pickerAction) {
-                      activePopupAutoSave = null;
-                      dismissPopupDirect();
-                      if (rootBarContainer != null) rootBarContainer.setVisibility(View.INVISIBLE);
-                      setAllMarkersVisibleTemp(false);
-                      ScreenCaptureActivity.pendingActionAfterGrant = () -> launchVisionPicker(item, isB, pickerAction);
-                      handler.postDelayed(() -> captureScreenAsync(true, frozen -> {
-                          if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
-                          setAllMarkersVisibleTemp(true);
-                          if (frozen == null) {
-                              showConditionDialog(item);
-                              return;
-                          }
-                          ScreenCaptureActivity.pendingActionAfterGrant = null;
-                          int x1 = isB ? item.condBX1 : item.condAX1;
-                          int y1 = isB ? item.condBY1 : item.condAY1;
-                          int x2 = isB ? item.condBX2 : item.condAX2;
-                          int y2 = isB ? item.condBY2 : item.condAY2;
-                          int bw = isB ? item.condBBoxW : item.condABoxW;
-                          int bh = isB ? item.condBBoxH : item.condABoxH;
-                          if (pickerAction == 0 || pickerAction == 2) {
-                              String hint = (pickerAction == 2)
-                                  ? "حرّك إصبعك فوق اللون الممتلئ للشريط ثم اضغط اعتماد:"
-                                  : "حرّك إصبعك لتحديد البكسل واللون بالمنظار ثم اضغط اعتماد:";
-                              pickerOverlayView = VisionHelper.showLoupePicker(ClickerService.this, wm, frozen, x1, y1, hint, new VisionHelper.ColorPickCallback() {
-                                  @Override
-                                  public void onPicked(int px, int py, int col) {
-                                      pickerOverlayView = null;
-                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
-                                      if (isB) {
-                                          if (pickerAction == 0) { item.condBX1 = px; item.condBY1 = py; }
-                                          item.condBColor = col;
-                                          item.condBColorPicked = true;
-                                      } else {
-                                          if (pickerAction == 0) { item.condAX1 = px; item.condAY1 = py; }
-                                          item.condAColor = col;
-                                          item.condAColorPicked = true;
-                                      }
-                                      showConditionDialog(item);
-                                  }
-                                  @Override
-                                  public void onCancel() {
-                                      pickerOverlayView = null;
-                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
-                                      showConditionDialog(item);
-                                  }
-                              });
-                          } else if (pickerAction == 1) {
-                              pickerOverlayView = VisionHelper.showAreaBoxPicker(ClickerService.this, wm, frozen, x1, y1, bw, bh, new VisionHelper.AreaPickCallback() {
-                                  @Override
-                                  public void onPicked(int cx, int cy, int boxW, int boxH, int centerColor, String gridSig) {
-                                      pickerOverlayView = null;
-                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
-                                      if (isB) {
-                                          item.condBX1 = cx; item.condBY1 = cy;
-                                          item.condBBoxW = boxW; item.condBBoxH = boxH;
-                                          item.condBColor = centerColor; item.condBColorPicked = true;
-                                          item.condBGrid = gridSig;
-                                      } else {
-                                          item.condAX1 = cx; item.condAY1 = cy;
-                                          item.condABoxW = boxW; item.condABoxH = boxH;
-                                          item.condAColor = centerColor; item.condAColorPicked = true;
-                                          item.condAGrid = gridSig;
-                                      }
-                                      showConditionDialog(item);
-                                  }
-                                  @Override
-                                  public void onCancel() {
-                                      pickerOverlayView = null;
-                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
-                                      showConditionDialog(item);
-                                  }
-                              });
-                          } else if (pickerAction == 3) {
-                              pickerOverlayView = VisionHelper.showBarRulerPicker(ClickerService.this, wm, frozen, x1, y1, x2, y2, new VisionHelper.RulerPickCallback() {
-                                  @Override
-                                  public void onPicked(int ax, int ay, int bx, int by) {
-                                      pickerOverlayView = null;
-                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
-                                      if (isB) {
-                                          item.condBX1 = ax; item.condBY1 = ay;
-                                          item.condBX2 = bx; item.condBY2 = by;
-                                      } else {
-                                          item.condAX1 = ax; item.condAY1 = ay;
-                                          item.condAX2 = bx; item.condAY2 = by;
-                                      }
-                                      showConditionDialog(item);
-                                  }
-                                  @Override
-                                  public void onCancel() {
-                                      pickerOverlayView = null;
-                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
-                                      showConditionDialog(item);
-                                  }
-                              });
-                          }
-                      }), 140);
-                  }
-                  private void setAllMarkersVisibleTemp(boolean show) {
-                      if (!show) {
-                          for (StepItem s : steps) {
-                              if (s.primaryView != null) s.primaryView.setVisibility(View.INVISIBLE);
-                              if (s.secondaryView != null) s.secondaryView.setVisibility(View.INVISIBLE);
-                          }
-                          if (vectorOverlay != null) vectorOverlay.setVisibility(View.INVISIBLE);
-                      } else {
-                          if (vectorOverlay != null) vectorOverlay.setVisibility(View.VISIBLE);
-                          applyVisibilityRules();
-                      }
-                  }
-                  private void showQuickNextSettingsDialog() {
-                      final SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                      LinearLayout box = createPopupContainer("⚙️ إعداد سريع شامل للخطوات القادمة");
-                      final EditText etDel = createPopupInput(box, "وقت الانتظار قبل البدء للخطوات القادمة (ms):",
-                          String.valueOf(prefs.getInt("def_delay", 300)), true, true);
-                      final EditText etDur = createPopupInput(box, "مدة اللمس العادية للخطوات القادمة (ms):",
-                          String.valueOf(prefs.getInt("def_duration", 60)), true, true);
-                      final EditText etSwp = createPopupInput(box, "مدة السحب أو التكبير/التصغير للخطوات القادمة (ms):",
-                          String.valueOf(prefs.getInt("def_swipe_dur", 350)), true, true);
-                      final EditText etRep = createPopupInput(box, "عدد تكرارات العملية للخطوات القادمة (الافتراضي 1):",
-                          String.valueOf(prefs.getInt("def_repeat", 1)), true, false);
-                      LinearLayout randRow = new LinearLayout(this);
-                      randRow.setOrientation(LinearLayout.HORIZONTAL);
-                      randRow.setGravity(Gravity.CENTER_VERTICAL);
-                      final CheckBox cbRand = new CheckBox(this);
-                      cbRand.setText("تفعيل مكافحة الحظر للخطوات القادمة");
-                      cbRand.setTextColor(Color.WHITE);
-                      cbRand.setChecked(prefs.getBoolean("def_use_rand", true));
-                      cbRand.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                      final LinearLayout customRandBox = new LinearLayout(this);
-                      customRandBox.setOrientation(LinearLayout.VERTICAL);
-                      customRandBox.setVisibility(View.GONE);
-                      Button bToggleRand = createPopupButton("⋮ تخصيص", "#374151");
-                      LinearLayout.LayoutParams trp = new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                      trp.setMargins(8, 4, 0, 4);
-                      bToggleRand.setLayoutParams(trp);
-                      bToggleRand.setOnClickListener(v -> {
-                          boolean vis = customRandBox.getVisibility() == View.VISIBLE;
-                          customRandBox.setVisibility(vis ? View.GONE : View.VISIBLE);
-                      });
-                      randRow.addView(cbRand);
-                      randRow.addView(bToggleRand);
-                      box.addView(randRow);
-                      final EditText etRPx = createPopupInput(customRandBox, "نطاق انتشار البكسل للقادم (px):",
-                          String.valueOf(prefs.getInt("def_rand_px", 11)), true, false);
-                      final EditText etRMs = createPopupInput(customRandBox, "عشوائية الانتظار للقادم (ms):",
-                          String.valueOf(prefs.getInt("def_rand_ms", 35)), true, false);
-                      final EditText etRDur = createPopupInput(customRandBox, "عشوائية مدة اللمس للقادم (ms):",
-                          String.valueOf(prefs.getInt("def_rand_dur", 15)), true, false);
-                      box.addView(customRandBox);
-                      Button bSave = createPopupButton("💾 اعتماد للخطوات القادمة", "#16A34A");
-                      bSave.setOnClickListener(v -> {
-                          try {
-                              prefs.edit()
-                                  .putInt("def_delay", Math.max(10, Integer.parseInt(etDel.getText().toString())))
-                                  .putInt("def_duration", Math.max(15, Integer.parseInt(etDur.getText().toString())))
-                                  .putInt("def_swipe_dur", Math.max(50, Integer.parseInt(etSwp.getText().toString())))
-                                  .putInt("def_repeat", Math.max(1, Integer.parseInt(etRep.getText().toString())))
-                                  .putBoolean("def_use_rand", cbRand.isChecked())
-                                  .putInt("def_rand_px", Math.max(0, Integer.parseInt(etRPx.getText().toString())))
-                                  .putInt("def_rand_ms", Math.max(0, Integer.parseInt(etRMs.getText().toString())))
-                                  .putInt("def_rand_dur", Math.max(0, Integer.parseInt(etRDur.getText().toString())))
-                                  .commit();
-                          } catch (Exception ignored) {}
-                          saveAndDismissPopup();
-                          showSingleToast("تم اعتماد الإعدادات للخطوات القادمة!");
-                      });
-                      box.addView(bSave);
-                      showPopupView(box, null);
-                  }
-                  private void showLayersDialog() {
-                      LinearLayout box = createPopupContainer("📋 طبقات الأوامر والتعديل الجماعي (" + steps.size() + " خطوة)");
-                      TextView tvBatch = new TextView(this);
-                      tvBatch.setText("⚡ توحيد التوقيت أو الدمج المتزامن لنطاق خطوات:");
-                      tvBatch.setTextColor(Color.parseColor("#F87171"));
-                      tvBatch.setPadding(0, 4, 0, 8);
-                      box.addView(tvBatch);
-                      LinearLayout rangeRow = new LinearLayout(this);
-                      rangeRow.setOrientation(LinearLayout.HORIZONTAL);
-                      LinearLayout col1 = new LinearLayout(this);
-                      col1.setOrientation(LinearLayout.VERTICAL);
-                      col1.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                      final EditText etFrom = createPopupInput(col1, "من خطوة رقم:", "1", true, false);
-                      rangeRow.addView(col1);
-                      LinearLayout col2 = new LinearLayout(this);
-                      col2.setOrientation(LinearLayout.VERTICAL);
-                      LinearLayout.LayoutParams c2p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                      c2p.setMargins(8, 0, 8, 0);
-                      col2.setLayoutParams(c2p);
-                      final EditText etTo = createPopupInput(col2, "إلى خطوة رقم:", String.valueOf(Math.max(1, getSortedUniqueSteps().size())), true, false);
-                      rangeRow.addView(col2);
-                      LinearLayout col3 = new LinearLayout(this);
-                      col3.setOrientation(LinearLayout.VERTICAL);
-                      col3.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f));
-                      final EditText etNewDelay = createPopupInput(col3, "الانتظار الجديد (ms):", "150", true, false);
-                      rangeRow.addView(col3);
-                      box.addView(rangeRow);
-                      Button bApplyBatch = createPopupButton("توحيد وقت الانتظار للنطاق المحدد (من - إلى)", "#16A34A");
-                      bApplyBatch.setOnClickListener(v -> {
-                          try {
-                              int from = Integer.parseInt(etFrom.getText().toString());
-                              int to = Integer.parseInt(etTo.getText().toString());
-                              int d = Math.max(10, Integer.parseInt(etNewDelay.getText().toString()));
-                              int count = 0;
-                              for (StepItem s : steps) {
-                                  if (s.stepNum >= from && s.stepNum <= to) {
-                                      s.delayMs = d;
-                                      count++;
-                                  }
-                              }
-                              triggerEmergencyAutoSave();
-                              showSingleToast("تم توحيد وقت الانتظار لـ " + count + " خطوة!");
-                              saveAndDismissPopup();
-                          } catch (Exception ignored) {}
-                      });
-                      box.addView(bApplyBatch);
-                      Button bMergeSim = createPopupButton("⚡ دمج النطاق المحدد ليضرب في نفس اللحظة", "#7C3AED");
-                      bMergeSim.setOnClickListener(v -> {
-                          try {
-                              int from = Integer.parseInt(etFrom.getText().toString());
-                              int to = Integer.parseInt(etTo.getText().toString());
-                              for (StepItem s : steps) {
-                                  if (s.stepNum >= from && s.stepNum <= to) {
-                                      s.stepNum = from;
-                                  }
-                              }
-                              normalizeStepNumbers();
-                              triggerEmergencyAutoSave();
-                              showSingleToast("تم دمج الخطوات المحددة في لحظة واحدة!");
-                              saveAndDismissPopup();
-                          } catch (Exception ignored) {}
-                      });
-                      box.addView(bMergeSim);
-                      TextView tvIns = new TextView(this);
-                      tvIns.setText("➕ إدراج عملية جديدة في المنتصف ودفع الأرقام التالية:");
-                      tvIns.setTextColor(Color.parseColor("#60A5FA"));
-                      tvIns.setPadding(0, 16, 0, 4);
-                      box.addView(tvIns);
-                      final String[] typeNames = {
-                          "نوع العملية: لمسة عادية 🎯 (اضغط للتغيير)",
-                          "نوع العملية: سحب ⇄ (اضغط للتغيير)",
-                          "نوع العملية: تصغير 🔍- (اضغط للتغيير)",
-                          "نوع العملية: تكبير 🔍+ (اضغط للتغيير)",
-                          "نوع العملية: قفز وتكرار ↺ (اضغط للتغيير)",
-                          "نوع العملية: أمر فحص بصري مستقل 👁️ (اضغط للتغيير)"
-                      };
-                      final Button bInsType = createPopupButton(typeNames[insertTypeSelection % 6], "#374151");
-                      bInsType.setOnClickListener(v -> {
-                          insertTypeSelection = (insertTypeSelection + 1) % 6;
-                          bInsType.setText(typeNames[insertTypeSelection]);
-                      });
-                      box.addView(bInsType);
-                      final EditText etInsertAt = createPopupInput(box, "اكتب رقم الخطوة المراد الإدراج مكانها:", "1", true, false);
-                      Button bInsertMid = createPopupButton("إدراج العملية المختارة الآن ودفع الأرقام التالية", "#2563EB");
-                      bInsertMid.setOnClickListener(v -> {
-                          try {
-                              int pos = Math.max(1, Integer.parseInt(etInsertAt.getText().toString()));
-                              for (StepItem s : steps) {
-                                  if (s.stepNum >= pos) s.stepNum++;
-                                  if (s.type == StepItem.TYPE_JUMP && s.jumpTargetStep >= pos) s.jumpTargetStep++;
-                              }
-                              dismissPopupDirect();
-                              insertStepAt(pos, insertTypeSelection);
-                              showSingleToast("تم إدراج العملية في الخطوة #" + pos);
-                          } catch (Exception ignored) {}
-                      });
-                      box.addView(bInsertMid);
-                      for (final StepItem s : steps) {
-                          String info = "#" + s.stepNum + " [" + s.getTypeLabel() + "] "
-                              + (s.name.isEmpty() ? "" : "(" + s.name + ") ")
-                              + "انتظار:" + s.delayMs + "ms | تكرار:" + s.repeatCount;
-                          Button bStep = createPopupButton(info, "#27272A");
-                          bStep.setOnClickListener(v -> {
-                              dismissPopupDirect();
-                              showEditStepDialog(s);
-                          });
-                          box.addView(bStep);
-                      }
-                      showPopupView(box, null);
-                  }
-                  private void showFoldersDialog() {
-                      final List<String> folders = StorageManager.getFolderNames(this);
-                      if (!folders.contains(currentFolder)) currentFolder = folders.get(0);
-                      LinearLayout box = createPopupContainer("📁 المجلدات والسجلات (المجلد: " + currentFolder + ")");
-                      final int backupCount = StorageManager.getAutoBackupCount(this);
-                      if (backupCount > 0) {
-                          Button bRestoreEmergency = createPopupButton("🔄 استرجاع آخر جلسة عمل غير محفوظة (" + backupCount + " خطوة طوارئ)", "#B45309");
-                          bRestoreEmergency.setOnClickListener(v -> {
-                              List<StepItem> recovered = StorageManager.loadAutoBackup(this);
-                              if (!recovered.isEmpty()) {
-                                  loadScenarioSteps(recovered);
-                                  showSingleToast("✅ تم استرجاع جلسة الطوارئ بنجاح (" + recovered.size() + " خطوة)");
-                                  dismissPopupDirect();
-                              } else {
-                                  showSingleToast("لا توجد جلسة طوارئ محفوظة");
-                              }
-                          });
-                          box.addView(bRestoreEmergency);
-                      }
-                      HorizontalScrollView hScroll = new HorizontalScrollView(this);
-                      LinearLayout folderRow = new LinearLayout(this);
-                      folderRow.setOrientation(LinearLayout.HORIZONTAL);
-                      for (final String fName : folders) {
-                          Button bf = createPopupButton(fName.equals(currentFolder) ? "📂 " + fName : fName,
-                              fName.equals(currentFolder) ? "#DC2626" : "#374151");
-                          LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                              LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                          lp.setMargins(6, 4, 6, 4);
-                          bf.setLayoutParams(lp);
-                          bf.setPadding(26, 12, 26, 12);
-                          bf.setOnClickListener(v -> {
-                              currentFolder = fName;
-                              dismissPopupDirect();
-                              showFoldersDialog();
-                          });
-                          folderRow.addView(bf);
-                      }
-                      hScroll.addView(folderRow);
-                      box.addView(hScroll);
-                      final EditText etFolderInput = createPopupInput(box, "اسم المجلد (لإضافة مجلد جديد أو إعادة تسمية الحالي):", "", false, false);
-                      LinearLayout fActions = new LinearLayout(this);
-                      fActions.setOrientation(LinearLayout.HORIZONTAL);
-                      Button bAddFolder = createPopupButton("+ إضافة مجلد", "#2563EB");
-                      LinearLayout.LayoutParams fp1 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                      fp1.setMargins(0, 6, 4, 6);
-                      bAddFolder.setLayoutParams(fp1);
-                      bAddFolder.setOnClickListener(v -> {
-                          String fn = etFolderInput.getText().toString().trim();
-                          if (fn.isEmpty()) fn = "مجلد " + (folders.size() + 1);
-                          StorageManager.addFolder(this, fn);
-                          currentFolder = fn;
-                          dismissPopupDirect();
-                          showFoldersDialog();
-                      });
-                      Button bRenFolder = createPopupButton("✏️ تسمية الحالي", "#4B5563");
-                      LinearLayout.LayoutParams fp2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                      fp2.setMargins(4, 6, 4, 6);
-                      bRenFolder.setLayoutParams(fp2);
-                      bRenFolder.setOnClickListener(v -> {
-                          String nn = etFolderInput.getText().toString().trim();
-                          if (nn.isEmpty()) {
-                              showSingleToast("اكتب الاسم الجديد في الخانة أولاً");
-                              return;
-                          }
-                          if (StorageManager.renameFolder(this, currentFolder, nn)) {
-                              currentFolder = nn;
-                              dismissPopupDirect();
-                              showFoldersDialog();
-                          }
-                      });
-                      Button bDelFolder = createPopupButton("🗑️ حذف المجلد", "#991B1B");
-                      LinearLayout.LayoutParams fp3 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                      fp3.setMargins(4, 6, 0, 6);
-                      bDelFolder.setLayoutParams(fp3);
-                      bDelFolder.setOnClickListener(v -> {
-                          if (folders.size() <= 1) {
-                              showSingleToast("لا يمكن حذف المجلد الأخير (يجب بقاء مجلد واحد على الأقل)");
-                              return;
-                          }
-                          final String toDel = currentFolder;
-                          showConfirmDialog("حذف المجلد", "هل أنت متأكد من حذف المجلد (" + toDel + ") وجميع السجلات بداخله؟", () -> {
-                              StorageManager.deleteFolder(this, toDel);
-                              List<String> rem = StorageManager.getFolderNames(this);
-                              currentFolder = rem.get(0);
-                              showFoldersDialog();
-                          });
-                      });
-                      fActions.addView(bAddFolder);
-                      fActions.addView(bRenFolder);
-                      fActions.addView(bDelFolder);
-                      box.addView(fActions);
-                      final EditText etProfileName = createPopupInput(box, "اسم السجل لحفظ الخطوات الحالية (" + steps.size() + " خطوة):", "", false, false);
-                      Button bSaveProf = createPopupButton("💾 حفظ السجل الحالي في (" + currentFolder + ")", "#16A34A");
-                      bSaveProf.setOnClickListener(v -> {
-                          String pn = etProfileName.getText().toString().trim();
-                          if (pn.isEmpty()) pn = "سجل " + (StorageManager.getProfileNames(this, currentFolder).size() + 1);
-                          StorageManager.saveProfile(this, currentFolder, pn, steps);
-                          StorageManager.clearAutoBackup(this);
-                          showSingleToast("تم حفظ (" + pn + ") بنجاح!");
-                          dismissPopupDirect();
-                          showFoldersDialog();
-                      });
-                      box.addView(bSaveProf);
-                      List<String> profiles = StorageManager.getProfileNames(this, currentFolder);
-                      for (final String pName : profiles) {
-                          LinearLayout pRow = new LinearLayout(this);
-                          pRow.setOrientation(LinearLayout.HORIZONTAL);
-                          Button bLoad = createPopupButton("▶ تحميل: " + pName, "#374151");
-                          bLoad.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                          bLoad.setOnClickListener(v -> {
-                              loadScenarioSteps(StorageManager.loadProfile(this, currentFolder, pName));
-                              showSingleToast("تم تحميل: " + pName);
-                              dismissPopupDirect();
-                          });
-                          Button bDel = createPopupButton("🗑️", "#991B1B");
-                          LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(110, LinearLayout.LayoutParams.WRAP_CONTENT);
-                          dlp.setMargins(8, 8, 0, 8);
-                          bDel.setLayoutParams(dlp);
-                          bDel.setOnClickListener(v -> {
-                              showConfirmDialog("حذف السجل", "هل أنت متأكد من حذف السجل (" + pName + ") نهائياً؟", () -> {
-                                  StorageManager.deleteProfile(this, currentFolder, pName);
-                                  showFoldersDialog();
-                              });
-                          });
-                          pRow.addView(bLoad);
-                          pRow.addView(bDel);
-                          box.addView(pRow);
-                      }
-                      showPopupView(box, null);
-                  }
+             private void showConditionDialog(final StepItem item) {
+                 LinearLayout box = createPopupContainer("👁️ الشرط البصري المتقدم للخطوة #" + item.stepNum);
+                 final CheckBox cbEnable = new CheckBox(this);
+                 cbEnable.setText("تفعيل الشرط البصري لهذه الخطوة");
+                 cbEnable.setTextColor(Color.WHITE);
+                 cbEnable.setChecked(item.useCondition || item.type == StepItem.TYPE_VISION_CHECK);
+                 if (item.type == StepItem.TYPE_VISION_CHECK) cbEnable.setEnabled(false);
+                 box.addView(cbEnable);
+                 if (item.type != StepItem.TYPE_VISION_CHECK) {
+                     final Button bTiming = createPopupButton(
+                         item.checkBeforeTap ? "⏱️ توقيت الفحص: قبل تنفيذ اللمسة (اضغط للتغيير)" : "⏱️ توقيت الفحص: بعد تنفيذ اللمسة (اضغط للتغيير)", "#374151");
+                     bTiming.setOnClickListener(v -> {
+                         item.checkBeforeTap = !item.checkBeforeTap;
+                         bTiming.setText(item.checkBeforeTap ? "⏱️ توقيت الفحص: قبل تنفيذ اللمسة (اضغط للتغيير)" : "⏱️ توقيت الفحص: بعد تنفيذ اللمسة (اضغط للتغيير)");
+                     });
+                     box.addView(bTiming);
+                 }
+                 final String[] logicLabels = {
+                     "🔗 الشروط المفعلة: الشرط (A) فقط",
+                     "🔗 الشروط المفعلة: يجب تحقق (A و B) معاً [AND]",
+                     "🔗 الشروط المفعلة: يكفي تحقق (A أو B) [OR]"
+                 };
+                 final LinearLayout secBContainer = new LinearLayout(this);
+                 secBContainer.setOrientation(LinearLayout.VERTICAL);
+                 final Button bLogic = createPopupButton(logicLabels[item.condLogic % 3], "#7C3AED");
+                 bLogic.setOnClickListener(v -> {
+                     item.condLogic = (item.condLogic + 1) % 3;
+                     bLogic.setText(logicLabels[item.condLogic]);
+                     secBContainer.setVisibility(item.condLogic > 0 ? View.VISIBLE : View.GONE);
+                 });
+                 box.addView(bLogic);
+                 final Runnable[] saveRef = new Runnable[1];
+                 final Runnable saveA = buildSubConditionUI(box, item, false, () -> {
+                     if (saveRef[0] != null) saveRef[0].run();
+                 });
+                 secBContainer.setVisibility(item.condLogic > 0 ? View.VISIBLE : View.GONE);
+                 final Runnable saveB = buildSubConditionUI(secBContainer, item, true, () -> {
+                     if (saveRef[0] != null) saveRef[0].run();
+                 });
+                 box.addView(secBContainer);
+                 TextView tvWaitHdr = new TextView(this);
+                 tvWaitHdr.setText("⏳ نظام الانتظار وإعادة الفحص:");
+                 tvWaitHdr.setTextColor(Color.parseColor("#FBBF24"));
+                 tvWaitHdr.setPadding(0, 14, 0, 4);
+                 box.addView(tvWaitHdr);
+                 final LinearLayout waitDetailsBox = new LinearLayout(this);
+                 waitDetailsBox.setOrientation(LinearLayout.VERTICAL);
+                 waitDetailsBox.setVisibility(item.condWaitMode ? View.VISIBLE : View.GONE);
+                 final Button bWaitMode = createPopupButton(
+                     item.condWaitMode ? "وضع الفحص: انتظار وإعادة فحص حتى المهلة (اضغط للتغيير)" : "وضع الفحص: فحص فوري لمرة واحدة فقط (اضغط للتغيير)", "#0891B2");
+                 bWaitMode.setOnClickListener(v -> {
+                     item.condWaitMode = !item.condWaitMode;
+                     bWaitMode.setText(item.condWaitMode ? "وضع الفحص: انتظار وإعادة فحص حتى المهلة (اضغط للتغيير)" : "وضع الفحص: فحص فوري لمرة واحدة فقط (اضغط للتغيير)");
+                     waitDetailsBox.setVisibility(item.condWaitMode ? View.VISIBLE : View.GONE);
+                 });
+                 box.addView(bWaitMode);
+                 final EditText etRetryInt = createPopupInput(waitDetailsBox, "الفترة بين كل فحص وآخر (مللي ثانية):", String.valueOf(item.condRetryIntervalMs), true, false);
+                 final EditText etTimeout = createPopupInput(waitDetailsBox, "أقصى مهلة انتظار قبل انتهاء الوقت (مللي ثانية):", String.valueOf(item.condWaitTimeoutMs), true, true);
+                 final EditText etConfirmCnt = createPopupInput(waitDetailsBox, "عدد مرات التحقق المتتالية المطلوبة (الافتراضي 1):", String.valueOf(item.condConfirmCount), true, false);
+                 box.addView(waitDetailsBox);
+                 TextView tvActHdr = new TextView(this);
+                 tvActHdr.setText("⚡ القرار والإجراءات عند الفحص:");
+                 tvActHdr.setTextColor(Color.parseColor("#34D399"));
+                 tvActHdr.setPadding(0, 14, 0, 4);
+                 box.addView(tvActHdr);
+                 final String[] actNames = {
+                     "نفّذ العملية وأكمل للخطوة التالية",
+                     "تخطَّ هذه الخطوة وانتقل للتالية",
+                     "اقفز إلى رقم الخطوة المحددة أدناه",
+                     "إيقاف السيناريو بالكامل"
+                 };
+                 final LinearLayout succJumpBox = new LinearLayout(this);
+                 succJumpBox.setOrientation(LinearLayout.VERTICAL);
+                 final EditText etSuccJump = createPopupInput(succJumpBox, "رقم خطوة القفز عند تحقق الشرط:", String.valueOf(item.condSuccessJumpStep), true, false);
+                 succJumpBox.setVisibility(item.condSuccessAction == 2 ? View.VISIBLE : View.GONE);
+                 final Button bSuccAct = createPopupButton("✅ عند التحقق: " + actNames[item.condSuccessAction % 4], "#16A34A");
+                 bSuccAct.setOnClickListener(v -> {
+                     item.condSuccessAction = (item.condSuccessAction + 1) % 4;
+                     bSuccAct.setText("✅ عند التحقق: " + actNames[item.condSuccessAction]);
+                     succJumpBox.setVisibility(item.condSuccessAction == 2 ? View.VISIBLE : View.GONE);
+                 });
+                 box.addView(bSuccAct);
+                 box.addView(succJumpBox);
+                 final LinearLayout failJumpBox = new LinearLayout(this);
+                 failJumpBox.setOrientation(LinearLayout.VERTICAL);
+                 final EditText etFailJump = createPopupInput(failJumpBox, "رقم خطوة القفز عند عدم تحقق الشرط:", String.valueOf(item.condFailJumpStep), true, false);
+                 failJumpBox.setVisibility(item.condFailAction == 2 ? View.VISIBLE : View.GONE);
+                 final Button bFailAct = createPopupButton("❌ عند عدم التحقق: " + actNames[item.condFailAction % 4], "#CA8A04");
+                 bFailAct.setOnClickListener(v -> {
+                     item.condFailAction = (item.condFailAction + 1) % 4;
+                     bFailAct.setText("❌ عند عدم التحقق: " + actNames[item.condFailAction]);
+                     failJumpBox.setVisibility(item.condFailAction == 2 ? View.VISIBLE : View.GONE);
+                 });
+                 box.addView(bFailAct);
+                 box.addView(failJumpBox);
+                 final LinearLayout timeoutJumpBox = new LinearLayout(this);
+                 timeoutJumpBox.setOrientation(LinearLayout.VERTICAL);
+                 final EditText etTimeoutJump = createPopupInput(timeoutJumpBox, "رقم خطوة القفز عند انتهاء المهلة:", String.valueOf(item.condTimeoutJumpStep), true, false);
+                 timeoutJumpBox.setVisibility(item.condTimeoutAction == 2 ? View.VISIBLE : View.GONE);
+                 final Button bTimeoutAct = createPopupButton("⌛ عند انتهاء المهلة: " + actNames[item.condTimeoutAction % 4], "#991B1B");
+                 bTimeoutAct.setOnClickListener(v -> {
+                     item.condTimeoutAction = (item.condTimeoutAction + 1) % 4;
+                     bTimeoutAct.setText("⌛ عند انتهاء المهلة: " + actNames[item.condTimeoutAction]);
+                     timeoutJumpBox.setVisibility(item.condTimeoutAction == 2 ? View.VISIBLE : View.GONE);
+                 });
+                 box.addView(bTimeoutAct);
+                 box.addView(timeoutJumpBox);
+                 final Runnable saveAllCond = () -> {
+                     try {
+                         item.useCondition = cbEnable.isChecked() || item.type == StepItem.TYPE_VISION_CHECK;
+                         saveA.run();
+                         saveB.run();
+                         item.condRetryIntervalMs = Math.max(50, Integer.parseInt(etRetryInt.getText().toString()));
+                         item.condWaitTimeoutMs = Math.max(200, Integer.parseInt(etTimeout.getText().toString()));
+                         item.condConfirmCount = Math.max(1, Integer.parseInt(etConfirmCnt.getText().toString()));
+                         item.condSuccessJumpStep = Math.max(1, Integer.parseInt(etSuccJump.getText().toString()));
+                         item.condFailJumpStep = Math.max(1, Integer.parseInt(etFailJump.getText().toString()));
+                         item.condTimeoutJumpStep = Math.max(1, Integer.parseInt(etTimeoutJump.getText().toString()));
+                         if (item.primaryView != null) item.primaryView.invalidate();
+                         triggerEmergencyAutoSave();
+                     } catch (Exception ignored) {}
+                 };
+                 saveRef[0] = saveAllCond;
+                 final TextView tvTestResultBox = new TextView(this);
+                 tvTestResultBox.setText("📊 اضغط زر الاختبار بالأسفل لرؤية النتيجة هنا مباشرة...");
+                 tvTestResultBox.setTextColor(Color.parseColor("#94A3B8"));
+                 tvTestResultBox.setTextSize(12);
+                 tvTestResultBox.setPadding(16, 14, 16, 14);
+                 GradientDrawable resBg = new GradientDrawable();
+                 resBg.setColor(Color.parseColor("#18181B"));
+                 resBg.setCornerRadius(12f);
+                 resBg.setStroke(2, Color.parseColor("#3F3F46"));
+                 tvTestResultBox.setBackgroundDrawable(resBg);
+                 LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                 rlp.setMargins(0, 10, 0, 10);
+                 tvTestResultBox.setLayoutParams(rlp);
+                 box.addView(tvTestResultBox);
+                 Button bTestNow = createPopupButton("🔍 اختبار الشرط ومعاينة النتيجة الآن", "#0284C7");
+                 bTestNow.setOnClickListener(v -> {
+                     saveAllCond.run();
+                     tvTestResultBox.setText("⏳ جاري التقاط الشاشة وفحص البيانات بدقة...");
+                     tvTestResultBox.setTextColor(Color.parseColor("#FBBF24"));
+                     if (activePopupDialog != null) activePopupDialog.setVisibility(View.INVISIBLE);
+                     if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
+                     setAllMarkersVisibleTemp(false);
+                     Choreographer.getInstance().postFrameCallback(frameTimeNanos -> Choreographer.getInstance().postFrameCallback(frameTimeNanos1 -> captureScreenAsync(true, bmp -> {
+                         if (activePopupDialog != null) activePopupDialog.setVisibility(View.VISIBLE);
+                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                         setAllMarkersVisibleTemp(true);
+                         if (bmp == null) {
+                             tvTestResultBox.setText("❌ فشل التقاط الشاشة! تأكد من منح الصلاحية.");
+                             tvTestResultBox.setTextColor(Color.parseColor("#EF4444"));
+                             return;
+                         }
+                         VisionHelper.evaluateStepAsync(item, bmp, (overall, valA, valB) -> {
+                             StringBuilder msg = new StringBuilder();
+                             msg.append(overall ? "✅ النتيجة: الشرط متحقق تماماً!" : "❌ النتيجة: الشرط غير متحقق حالياً");
+                             if (item.condAMode == 2) {
+                                 int fillA = VisionHelper.estimateBarFillPct(bmp, item.condAX1, item.condAY1, item.condAX2, item.condAY2, item.condAColor, item.condATol);
+                                 msg.append("\n📊 امتلاء شريط A: ").append(fillA).append("% (المطلوب >= ").append(item.condABarPct).append("%)");
+                             } else if (item.condAMode == 1) {
+                                 int areaA = VisionHelper.estimateAreaMatchPct(bmp, item.condAX1, item.condAY1, item.condABoxW, item.condABoxH, item.condAColor, item.condAGrid, item.condATol);
+                                 msg.append("\n📊 تطابق مربع A: ").append(areaA).append("% (المطلوب >= ").append(item.condAAreaPct).append("%)");
+                             } else if (item.condAMode == 3) {
+                                 msg.append("\n🔢 الرقم المقروء في A: ").append(valA >= 0 ? valA : "لم يُقرأ").append(" (المتوقع: ").append(item.condAOcrExpected).append(")");
+                             }
+                             if (item.condLogic > 0) {
+                                 if (item.condBMode == 2) {
+                                     int fillB = VisionHelper.estimateBarFillPct(bmp, item.condBX1, item.condBY1, item.condBX2, item.condBY2, item.condBColor, item.condBTol);
+                                     msg.append("\n📊 امتلاء شريط B: ").append(fillB).append("% (المطلوب >= ").append(item.condBBarPct).append("%)");
+                                 } else if (item.condBMode == 1) {
+                                     int areaB = VisionHelper.estimateAreaMatchPct(bmp, item.condBX1, item.condBY1, item.condBBoxW, item.condBBoxH, item.condBColor, item.condBGrid, item.condBTol);
+                                     msg.append("\n📊 تطابق مربع B: ").append(areaB).append("% (المطلوب >= ").append(item.condBAreaPct).append("%)");
+                                 } else if (item.condBMode == 3) {
+                                     msg.append("\n🔢 الرقم المقروء في B: ").append(valB >= 0 ? valB : "لم يُقرأ").append(" (المتوقع: ").append(item.condBOcrExpected).append(")");
+                                 }
+                             }
+                             bmp.recycle();
+                             tvTestResultBox.setText(msg.toString());
+                             tvTestResultBox.setTextColor(overall ? Color.parseColor("#34D399") : Color.parseColor("#F87171"));
+                         });
+                     })));
+                 });
+                 box.addView(bTestNow);
+                 Button bDone = createPopupButton("💾 حفظ والعودة لإعدادات الخطوة", "#16A34A");
+                 bDone.setOnClickListener(v -> {
+                     saveAllCond.run();
+                     activePopupAutoSave = null;
+                     showEditStepDialog(item);
+                 });
+                 box.addView(bDone);
+                 showPopupView(box, saveAllCond);
+             }
+             private Runnable buildSubConditionUI(LinearLayout parent, final StepItem item, final boolean isB, final Runnable onBeforePick) {
+                 LinearLayout card = new LinearLayout(this);
+                 card.setOrientation(LinearLayout.VERTICAL);
+                 card.setPadding(18, 14, 18, 14);
+                 GradientDrawable cBg = new GradientDrawable();
+                 cBg.setColor(Color.parseColor("#222226"));
+                 cBg.setCornerRadius(16f);
+                 cBg.setStroke(2, Color.parseColor(isB ? "#10B981" : "#0891B2"));
+                 card.setBackgroundDrawable(cBg);
+                 LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                 clp.setMargins(0, 10, 0, 10);
+                 card.setLayoutParams(clp);
+                 String labelPrefix = isB ? "الشرط (B)" : "الشرط (A)";
+                 final String[] modeNames = {
+                     labelPrefix + " - النوع: فحص نقطة لون واحدة (اضغط للتغيير)",
+                     labelPrefix + " - النوع: فحص منطقة / مربع بكسلات (اضغط للتغيير)",
+                     labelPrefix + " - النوع: قياس امتلاء شريط بالمسطرة (اضغط للتغيير)",
+                     labelPrefix + " - النوع: قراءة أرقام OCR (اضغط للتغيير)"
+                 };
+                 final LinearLayout pixelBox = new LinearLayout(this);
+                 pixelBox.setOrientation(LinearLayout.VERTICAL);
+                 final LinearLayout areaBox = new LinearLayout(this);
+                 areaBox.setOrientation(LinearLayout.VERTICAL);
+                 final LinearLayout barBox = new LinearLayout(this);
+                 barBox.setOrientation(LinearLayout.VERTICAL);
+                 final LinearLayout ocrBox = new LinearLayout(this);
+                 ocrBox.setOrientation(LinearLayout.VERTICAL);
+                 int curMode = isB ? item.condBMode : item.condAMode;
+                 final Button bMode = createPopupButton(modeNames[curMode % 4], isB ? "#059669" : "#0E7490");
+                 bMode.setOnClickListener(v -> {
+                     int m = isB ? ((item.condBMode + 1) % 4) : ((item.condAMode + 1) % 4);
+                     if (isB) item.condBMode = m; else item.condAMode = m;
+                     bMode.setText(modeNames[m]);
+                     pixelBox.setVisibility(m == 0 ? View.VISIBLE : View.GONE);
+                     areaBox.setVisibility(m == 1 ? View.VISIBLE : View.GONE);
+                     barBox.setVisibility(m == 2 ? View.VISIBLE : View.GONE);
+                     ocrBox.setVisibility(m == 3 ? View.VISIBLE : View.GONE);
+                 });
+                 card.addView(bMode);
+                 int savedCol = isB ? item.condBColor : item.condAColor;
+                 boolean isPicked = isB ? item.condBColorPicked : item.condAColorPicked;
+                 int x1 = isB ? item.condBX1 : item.condAX1;
+                 int y1 = isB ? item.condBY1 : item.condAY1;
+                 int x2 = isB ? item.condBX2 : item.condAX2;
+                 int y2 = isB ? item.condBY2 : item.condAY2;
+                 int bw = isB ? item.condBBoxW : item.condABoxW;
+                 int bh = isB ? item.condBBoxH : item.condABoxH;
+                 pixelBox.setVisibility(curMode == 0 ? View.VISIBLE : View.GONE);
+                 LinearLayout pxRow = new LinearLayout(this);
+                 pxRow.setOrientation(LinearLayout.HORIZONTAL);
+                 pxRow.setGravity(Gravity.CENTER_VERTICAL);
+                 View pxSwatch = createColorSwatchView(savedCol, isPicked);
+                 pxRow.addView(pxSwatch);
+                 Button bPickPx = createPopupButton(
+                     isPicked ? "🎯 تغيير البكسل واللون (" + x1 + "," + y1 + ")" : "🎯 تحديد البكسل واللون بالمنظار", "#2563EB");
+                 bPickPx.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                 bPickPx.setOnClickListener(v -> {
+                     onBeforePick.run();
+                     launchVisionPicker(item, isB, 0);
+                 });
+                 pxRow.addView(bPickPx);
+                 pixelBox.addView(pxRow);
+                 card.addView(pixelBox);
+                 areaBox.setVisibility(curMode == 1 ? View.VISIBLE : View.GONE);
+                 LinearLayout arRow = new LinearLayout(this);
+                 arRow.setOrientation(LinearLayout.HORIZONTAL);
+                 arRow.setGravity(Gravity.CENTER_VERTICAL);
+                 View arSwatch = createColorSwatchView(savedCol, isPicked);
+                 arRow.addView(arSwatch);
+                 Button bPickArea = createPopupButton("🔲 تحديد مربع المنطقة من الشاشة (" + bw + "x" + bh + ")", "#2563EB");
+                 bPickArea.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                 bPickArea.setOnClickListener(v -> {
+                     onBeforePick.run();
+                     launchVisionPicker(item, isB, 1);
+                 });
+                 arRow.addView(bPickArea);
+                 areaBox.addView(arRow);
+                 final EditText etAreaPct = createPopupInput(areaBox, "نسبة تطابق البكسلات المطلوبة داخل المربع % (مثلاً 70):",
+                     String.valueOf(isB ? item.condBAreaPct : item.condAAreaPct), true, false);
+                 card.addView(areaBox);
+                 barBox.setVisibility(curMode == 2 ? View.VISIBLE : View.GONE);
+                 LinearLayout brColorRow = new LinearLayout(this);
+                 brColorRow.setOrientation(LinearLayout.HORIZONTAL);
+                 brColorRow.setGravity(Gravity.CENTER_VERTICAL);
+                 View brSwatch = createColorSwatchView(savedCol, isPicked);
+                 brColorRow.addView(brSwatch);
+                 Button bPickBarCol = createPopupButton(
+                     isPicked ? "🎨 1. تغيير لون امتلاء الشريط المحفوظ" : "🎨 1. تحديد لون الجزء الممتلئ من الشريط", "#2563EB");
+                 bPickBarCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                 bPickBarCol.setOnClickListener(v -> {
+                     onBeforePick.run();
+                     launchVisionPicker(item, isB, 2);
+                 });
+                 brColorRow.addView(bPickBarCol);
+                 barBox.addView(brColorRow);
+                 Button bPickRuler = createPopupButton(
+                     "📏 2. تحديد مسطرة الشريط A(" + x1 + "," + y1 + ") ➔ B(" + x2 + "," + y2 + ")", "#0891B2");
+                 bPickRuler.setOnClickListener(v -> {
+                     onBeforePick.run();
+                     launchVisionPicker(item, isB, 3);
+                 });
+                 barBox.addView(bPickRuler);
+                 final EditText etBarPct = createPopupInput(barBox, "نسبة الامتلاء المطلوبة أو أعلى % (مثلاً 90):",
+                     String.valueOf(isB ? item.condBBarPct : item.condABarPct), true, false);
+                 card.addView(barBox);
+                 ocrBox.setVisibility(curMode == 3 ? View.VISIBLE : View.GONE);
+                 int ocrCx = isB ? item.condBOcrCx : item.condAOcrCx;
+                 int ocrCy = isB ? item.condBOcrCy : item.condAOcrCy;
+                 int ocrW = isB ? item.condBOcrW : item.condAOcrW;
+                 int ocrH = isB ? item.condBOcrH : item.condAOcrH;
+                 Button bPickOcr = createPopupButton("🔲 تحديد منطقة الأرقام (" + ocrW + "x" + ocrH + ")", "#F59E0B");
+                 bPickOcr.setOnClickListener(v -> {
+                     onBeforePick.run();
+                     launchVisionPicker(item, isB, 4);
+                 });
+                 ocrBox.addView(bPickOcr);
+                 final EditText etOcrExpected = createPopupInput(ocrBox, "الرقم المتوقع (مثلاً 1000000):", isB ? item.condBOcrExpected : item.condAOcrExpected, true, false);
+                 final String[] opNames = {">= (أكبر أو يساوي)", "> (أكبر من)", "== (يساوي)", "<= (أصغر أو يساوي)", "< (أصغر من)", "!= (لا يساوي)"};
+                 int curOp = isB ? item.condBOcrOperator : item.condAOcrOperator;
+                 final Button bOcrOp = createPopupButton("العملية: " + opNames[curOp % 6], "#4B5563");
+                 bOcrOp.setOnClickListener(v -> {
+                     int o = isB ? item.condBOcrOperator : item.condAOcrOperator;
+                     o = (o + 1) % 6;
+                     if (isB) item.condBOcrOperator = o; else item.condAOcrOperator = o;
+                     bOcrOp.setText("العملية: " + opNames[o]);
+                 });
+                 ocrBox.addView(bOcrOp);
+                 card.addView(ocrBox);
+                 final EditText etTol = createPopupInput(card, "دقة تقارب اللون المسموحة % (لغير OCR):",
+                     String.valueOf(isB ? item.condBTol : item.condATol), true, false);
+                 parent.addView(card);
+                 return () -> {
+                     try {
+                         int tol = Math.max(50, Math.min(100, Integer.parseInt(etTol.getText().toString())));
+                         int aPct = Math.max(5, Math.min(100, Integer.parseInt(etAreaPct.getText().toString())));
+                         int bPct = Math.max(5, Math.min(100, Integer.parseInt(etBarPct.getText().toString())));
+                         String exp = etOcrExpected.getText().toString().trim();
+                         if (isB) {
+                             item.condBTol = tol;
+                             item.condBAreaPct = aPct;
+                             item.condBBarPct = bPct;
+                             item.condBOcrExpected = exp;
+                         } else {
+                             item.condATol = tol;
+                             item.condAAreaPct = aPct;
+                             item.condABarPct = bPct;
+                             item.condAOcrExpected = exp;
+                         }
+                     } catch (Exception ignored) {}
+                 };
+             }
+             private View createColorSwatchView(int color, boolean picked) {
+                 TextView tv = new TextView(this);
+                 tv.setText(picked ? "✔" : "?");
+                 tv.setTextColor(Color.WHITE);
+                 tv.setGravity(Gravity.CENTER);
+                 GradientDrawable gd = new GradientDrawable();
+                 gd.setColor(picked ? color : Color.parseColor("#3F3F46"));
+                 gd.setCornerRadius(10f);
+                 gd.setStroke(2, Color.WHITE);
+                 tv.setBackgroundDrawable(gd);
+                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(72, 68);
+                 lp.setMargins(0, 0, 12, 0);
+                 tv.setLayoutParams(lp);
+                 return tv;
+             }
+             private void launchVisionPicker(final StepItem item, final boolean isB, final int pickerAction) {
+                 activePopupAutoSave = null;
+                 dismissPopupDirect();
+                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
+                 setAllMarkersVisibleTemp(false);
+                 ScreenCaptureActivity.pendingActionAfterGrant = () -> launchVisionPicker(item, isB, pickerAction);
+                 Choreographer.getInstance().postFrameCallback(frameTimeNanos -> Choreographer.getInstance().postFrameCallback(frameTimeNanos1 -> captureScreenAsync(true, frozen -> {
+                     if (frozen == null) {
+                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                         setAllMarkersVisibleTemp(true);
+                         showConditionDialog(item);
+                         return;
+                     }
+                     ScreenCaptureActivity.pendingActionAfterGrant = null;
+                     int x1 = isB ? item.condBX1 : item.condAX1;
+                     int y1 = isB ? item.condBY1 : item.condAY1;
+                     int x2 = isB ? item.condBX2 : item.condAX2;
+                     int y2 = isB ? item.condBY2 : item.condAY2;
+                     int bw = isB ? item.condBBoxW : item.condABoxW;
+                     int bh = isB ? item.condBBoxH : item.condABoxH;
+                     if (pickerAction == 0 || pickerAction == 2) {
+                         String hint = (pickerAction == 2)
+                             ? "حرّك إصبعك فوق اللون الممتلئ للشريط ثم اضغط اعتماد:"
+                             : "حرّك إصبعك لتحديد البكسل واللون بالمنظار ثم اضغط اعتماد:";
+                         pickerOverlayView = VisionHelper.showLoupePicker(ClickerService.this, wm, frozen, x1, y1, hint, new VisionHelper.ColorPickCallback() {
+                             @Override
+                             public void onPicked(int px, int py, int col) {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 if (isB) {
+                                     if (pickerAction == 0) { item.condBX1 = px; item.condBY1 = py; }
+                                     item.condBColor = col;
+                                     item.condBColorPicked = true;
+                                 } else {
+                                     if (pickerAction == 0) { item.condAX1 = px; item.condAY1 = py; }
+                                     item.condAColor = col;
+                                     item.condAColorPicked = true;
+                                 }
+                                 showConditionDialog(item);
+                             }
+                             @Override
+                             public void onCancel() {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 showConditionDialog(item);
+                             }
+                         });
+                     } else if (pickerAction == 1) {
+                         pickerOverlayView = VisionHelper.showAreaBoxPicker(ClickerService.this, wm, frozen, x1, y1, bw, bh, new VisionHelper.AreaPickCallback() {
+                             @Override
+                             public void onPicked(int cx, int cy, int boxW, int boxH, int centerColor, String gridSig) {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 if (isB) {
+                                     item.condBX1 = cx; item.condBY1 = cy;
+                                     item.condBBoxW = boxW; item.condBBoxH = boxH;
+                                     item.condBColor = centerColor; item.condBColorPicked = true;
+                                     item.condBGrid = gridSig;
+                                 } else {
+                                     item.condAX1 = cx; item.condAY1 = cy;
+                                     item.condABoxW = boxW; item.condABoxH = boxH;
+                                     item.condAColor = centerColor; item.condAColorPicked = true;
+                                     item.condAGrid = gridSig;
+                                 }
+                                 showConditionDialog(item);
+                             }
+                             @Override
+                             public void onCancel() {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 showConditionDialog(item);
+                             }
+                         });
+                     } else if (pickerAction == 3) {
+                         pickerOverlayView = VisionHelper.showBarRulerPicker(ClickerService.this, wm, frozen, x1, y1, x2, y2, new VisionHelper.RulerPickCallback() {
+                             @Override
+                             public void onPicked(int ax, int ay, int bx, int by) {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 if (isB) {
+                                     item.condBX1 = ax; item.condBY1 = ay;
+                                     item.condBX2 = bx; item.condBY2 = by;
+                                 } else {
+                                     item.condAX1 = ax; item.condAY1 = ay;
+                                     item.condAX2 = bx; item.condAY2 = by;
+                                 }
+                                 showConditionDialog(item);
+                             }
+                             @Override
+                             public void onCancel() {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 showConditionDialog(item);
+                             }
+                         });
+                     } else if (pickerAction == 4) {
+                         int ocrW = isB ? item.condBOcrW : item.condAOcrW;
+                         int ocrH = isB ? item.condBOcrH : item.condAOcrH;
+                         int ocrCx = isB ? item.condBOcrCx : item.condAOcrCx;
+                         int ocrCy = isB ? item.condBOcrCy : item.condAOcrCy;
+                         pickerOverlayView = VisionHelper.showOcrBoxPicker(ClickerService.this, wm, frozen, ocrCx, ocrCy, ocrW, ocrH, new VisionHelper.OcrPickCallback() {
+                             @Override
+                             public void onPicked(int cx, int cy, int boxW, int boxH) {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 if (isB) {
+                                     item.condBOcrCx = cx; item.condBOcrCy = cy;
+                                     item.condBOcrW = boxW; item.condBOcrH = boxH;
+                                 } else {
+                                     item.condAOcrCx = cx; item.condAOcrCy = cy;
+                                     item.condAOcrW = boxW; item.condAOcrH = boxH;
+                                 }
+                                 showConditionDialog(item);
+                             }
+                             @Override
+                             public void onCancel() {
+                                 pickerOverlayView = null;
+                                 if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                 if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                                 setAllMarkersVisibleTemp(true);
+                                 showConditionDialog(item);
+                             }
+                         });
+                     }
+                 })));
+             }
+             private void setAllMarkersVisibleTemp(boolean show) {
+                 if (!show) {
+                     for (StepItem s : steps) {
+                         if (s.primaryView != null) s.primaryView.setVisibility(View.GONE);
+                         if (s.secondaryView != null) s.secondaryView.setVisibility(View.GONE);
+                     }
+                     if (vectorOverlay != null) vectorOverlay.setVisibility(View.GONE);
+                     if (hudView != null) hudView.setVisibility(View.GONE);
+                     if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
+                 } else {
+                     if (vectorOverlay != null) vectorOverlay.setVisibility(View.VISIBLE);
+                     SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                     if (hudView != null) {
+                         hudView.setVisibility(prefs.getBoolean("show_hud", true) ? View.VISIBLE : View.GONE);
+                     }
+                     if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                     applyVisibilityRules();
+                 }
+             }
+             private void showQuickNextSettingsDialog() {
+                 final SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                 LinearLayout box = createPopupContainer("⚙️ إعداد سريع شامل للخطوات القادمة");
+                 final EditText etDel = createPopupInput(box, "وقت الانتظار قبل البدء للخطوات القادمة (ms):",
+                     String.valueOf(prefs.getInt("def_delay", 300)), true, true);
+                 final EditText etDur = createPopupInput(box, "مدة اللمس العادية للخطوات القادمة (ms):",
+                     String.valueOf(prefs.getInt("def_duration", 60)), true, true);
+                 final EditText etSwp = createPopupInput(box, "مدة السحب أو التكبير/التصغير للخطوات القادمة (ms):",
+                     String.valueOf(prefs.getInt("def_swipe_dur", 350)), true, true);
+                 final EditText etRep = createPopupInput(box, "عدد تكرارات العملية للخطوات القادمة (الافتراضي 1):",
+                     String.valueOf(prefs.getInt("def_repeat", 1)), true, false);
+                 LinearLayout randRow = new LinearLayout(this);
+                 randRow.setOrientation(LinearLayout.HORIZONTAL);
+                 randRow.setGravity(Gravity.CENTER_VERTICAL);
+                 final CheckBox cbRand = new CheckBox(this);
+                 cbRand.setText("تفعيل مكافحة الحظر للخطوات القادمة");
+                 cbRand.setTextColor(Color.WHITE);
+                 cbRand.setChecked(prefs.getBoolean("def_use_rand", true));
+                 cbRand.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                 final LinearLayout customRandBox = new LinearLayout(this);
+                 customRandBox.setOrientation(LinearLayout.VERTICAL);
+                 customRandBox.setVisibility(View.GONE);
+                 Button bToggleRand = createPopupButton("⋮ تخصيص", "#374151");
+                 LinearLayout.LayoutParams trp = new LinearLayout.LayoutParams(
+                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                 trp.setMargins(8, 4, 0, 4);
+                 bToggleRand.setLayoutParams(trp);
+                 bToggleRand.setOnClickListener(v -> {
+                     boolean vis = customRandBox.getVisibility() == View.VISIBLE;
+                     customRandBox.setVisibility(vis ? View.GONE : View.VISIBLE);
+                 });
+                 randRow.addView(cbRand);
+                 randRow.addView(bToggleRand);
+                 box.addView(randRow);
+                 final EditText etRPx = createPopupInput(customRandBox, "نطاق انتشار البكسل للقادم (px):",
+                     String.valueOf(prefs.getInt("def_rand_px", 11)), true, false);
+                 final EditText etRMs = createPopupInput(customRandBox, "عشوائية الانتظار للقادم (ms):",
+                     String.valueOf(prefs.getInt("def_rand_ms", 35)), true, false);
+                 final EditText etRDur = createPopupInput(customRandBox, "عشوائية مدة اللمس للقادم (ms):",
+                     String.valueOf(prefs.getInt("def_rand_dur", 15)), true, false);
+                 box.addView(customRandBox);
+                 Button bSave = createPopupButton("💾 اعتماد للخطوات القادمة", "#16A34A");
+                 bSave.setOnClickListener(v -> {
+                     try {
+                         prefs.edit()
+                             .putInt("def_delay", Math.max(10, Integer.parseInt(etDel.getText().toString())))
+                             .putInt("def_duration", Math.max(15, Integer.parseInt(etDur.getText().toString())))
+                             .putInt("def_swipe_dur", Math.max(50, Integer.parseInt(etSwp.getText().toString())))
+                             .putInt("def_repeat", Math.max(1, Integer.parseInt(etRep.getText().toString())))
+                             .putBoolean("def_use_rand", cbRand.isChecked())
+                             .putInt("def_rand_px", Math.max(0, Integer.parseInt(etRPx.getText().toString())))
+                             .putInt("def_rand_ms", Math.max(0, Integer.parseInt(etRMs.getText().toString())))
+                             .putInt("def_rand_dur", Math.max(0, Integer.parseInt(etRDur.getText().toString())))
+                             .commit();
+                     } catch (Exception ignored) {}
+                     saveAndDismissPopup();
+                     showSingleToast("تم اعتماد الإعدادات للخطوات القادمة!");
+                 });
+                 box.addView(bSave);
+                 showPopupView(box, null);
+             }
+             private void showLayersDialog() {
+                 LinearLayout box = createPopupContainer("📋 طبقات الأوامر والتعديل الجماعي (" + steps.size() + " خطوة)");
+                 TextView tvBatch = new TextView(this);
+                 tvBatch.setText("⚡ توحيد التوقيت أو الدمج المتزامن لنطاق خطوات:");
+                 tvBatch.setTextColor(Color.parseColor("#F87171"));
+                 tvBatch.setPadding(0, 4, 0, 8);
+                 box.addView(tvBatch);
+                 LinearLayout rangeRow = new LinearLayout(this);
+                 rangeRow.setOrientation(LinearLayout.HORIZONTAL);
+                 LinearLayout col1 = new LinearLayout(this);
+                 col1.setOrientation(LinearLayout.VERTICAL);
+                 col1.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                 final EditText etFrom = createPopupInput(col1, "من خطوة رقم:", "1", true, false);
+                 rangeRow.addView(col1);
+                 LinearLayout col2 = new LinearLayout(this);
+                 col2.setOrientation(LinearLayout.VERTICAL);
+                 LinearLayout.LayoutParams c2p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                 c2p.setMargins(8, 0, 8, 0);
+                 col2.setLayoutParams(c2p);
+                 final EditText etTo = createPopupInput(col2, "إلى خطوة رقم:", String.valueOf(Math.max(1, getSortedUniqueSteps().size())), true, false);
+                 rangeRow.addView(col2);
+                 LinearLayout col3 = new LinearLayout(this);
+                 col3.setOrientation(LinearLayout.VERTICAL);
+                 col3.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f));
+                 final EditText etNewDelay = createPopupInput(col3, "الانتظار الجديد (ms):", "150", true, false);
+                 rangeRow.addView(col3);
+                 box.addView(rangeRow);
+                 Button bApplyBatch = createPopupButton("توحيد وقت الانتظار للنطاق المحدد (من - إلى)", "#16A34A");
+                 bApplyBatch.setOnClickListener(v -> {
+                     try {
+                         int from = Integer.parseInt(etFrom.getText().toString());
+                         int to = Integer.parseInt(etTo.getText().toString());
+                         int d = Math.max(10, Integer.parseInt(etNewDelay.getText().toString()));
+                         int count = 0;
+                         for (StepItem s : steps) {
+                             if (s.stepNum >= from && s.stepNum <= to) {
+                                 s.delayMs = d;
+                                 count++;
+                             }
+                         }
+                         triggerEmergencyAutoSave();
+                         showSingleToast("تم توحيد وقت الانتظار لـ " + count + " خطوة!");
+                         saveAndDismissPopup();
+                     } catch (Exception ignored) {}
+                 });
+                 box.addView(bApplyBatch);
+                 Button bMergeSim = createPopupButton("⚡ دمج النطاق المحدد ليضرب في نفس اللحظة", "#7C3AED");
+                 bMergeSim.setOnClickListener(v -> {
+                     try {
+                         int from = Integer.parseInt(etFrom.getText().toString());
+                         int to = Integer.parseInt(etTo.getText().toString());
+                         for (StepItem s : steps) {
+                             if (s.stepNum >= from && s.stepNum <= to) {
+                                 s.stepNum = from;
+                             }
+                         }
+                         normalizeStepNumbers();
+                         triggerEmergencyAutoSave();
+                         showSingleToast("تم دمج الخطوات المحددة في لحظة واحدة!");
+                         saveAndDismissPopup();
+                     } catch (Exception ignored) {}
+                 });
+                 box.addView(bMergeSim);
+                 TextView tvIns = new TextView(this);
+                 tvIns.setText("➕ إدراج عملية جديدة في المنتصف ودفع الأرقام التالية:");
+                 tvIns.setTextColor(Color.parseColor("#60A5FA"));
+                 tvIns.setPadding(0, 16, 0, 4);
+                 box.addView(tvIns);
+                 final String[] typeNames = {
+                     "نوع العملية: لمسة عادية 🎯 (اضغط للتغيير)",
+                     "نوع العملية: سحب ⇄ (اضغط للتغيير)",
+                     "نوع العملية: تصغير 🔍- (اضغط للتغيير)",
+                     "نوع العملية: تكبير 🔍+ (اضغط للتغيير)",
+                     "نوع العملية: قفز وتكرار ↺ (اضغط للتغيير)",
+                     "نوع العملية: أمر فحص بصري مستقل 👁️ (اضغط للتغيير)"
+                 };
+                 final Button bInsType = createPopupButton(typeNames[insertTypeSelection % 6], "#374151");
+                 bInsType.setOnClickListener(v -> {
+                     insertTypeSelection = (insertTypeSelection + 1) % 6;
+                     bInsType.setText(typeNames[insertTypeSelection]);
+                 });
+                 box.addView(bInsType);
+                 final EditText etInsertAt = createPopupInput(box, "اكتب رقم الخطوة المراد الإدراج مكانها:", "1", true, false);
+                 Button bInsertMid = createPopupButton("إدراج العملية المختارة الآن ودفع الأرقام التالية", "#2563EB");
+                 bInsertMid.setOnClickListener(v -> {
+                     try {
+                         int pos = Math.max(1, Integer.parseInt(etInsertAt.getText().toString()));
+                         for (StepItem s : steps) {
+                             if (s.stepNum >= pos) s.stepNum++;
+                             if (s.type == StepItem.TYPE_JUMP && s.jumpTargetStep >= pos) s.jumpTargetStep++;
+                         }
+                         dismissPopupDirect();
+                         insertStepAt(pos, insertTypeSelection);
+                         showSingleToast("تم إدراج العملية في الخطوة #" + pos);
+                     } catch (Exception ignored) {}
+                 });
+                 box.addView(bInsertMid);
+                 for (final StepItem s : steps) {
+                     String info = "#" + s.stepNum + " [" + s.getTypeLabel() + "] "
+                         + (s.name.isEmpty() ? "" : "(" + s.name + ") ")
+                         + "انتظار:" + s.delayMs + "ms | تكرار:" + s.repeatCount;
+                     Button bStep = createPopupButton(info, "#27272A");
+                     bStep.setOnClickListener(v -> {
+                         dismissPopupDirect();
+                         showEditStepDialog(s);
+                     });
+                     box.addView(bStep);
+                 }
+                 showPopupView(box, null);
+             }
+             private void showFoldersDialog() {
+                 final List<String> folders = StorageManager.getFolderNames(this);
+                 if (!folders.contains(currentFolder)) currentFolder = folders.get(0);
+                 LinearLayout box = createPopupContainer("📁 المجلدات والسجلات (المجلد: " + currentFolder + ")");
+                 final int backupCount = StorageManager.getAutoBackupCount(this);
+                 if (backupCount > 0) {
+                     Button bRestoreEmergency = createPopupButton("🔄 استرجاع آخر جلسة عمل غير محفوظة (" + backupCount + " خطوة طوارئ)", "#B45309");
+                     bRestoreEmergency.setOnClickListener(v -> {
+                         List<StepItem> recovered = StorageManager.loadAutoBackup(this);
+                         if (!recovered.isEmpty()) {
+                             loadScenarioSteps(recovered);
+                             showSingleToast("✅ تم استرجاع جلسة الطوارئ بنجاح (" + recovered.size() + " خطوة)");
+                             dismissPopupDirect();
+                         } else {
+                             showSingleToast("لا توجد جلسة طوارئ محفوظة");
+                         }
+                     });
+                     box.addView(bRestoreEmergency);
+                 }
+                 HorizontalScrollView hScroll = new HorizontalScrollView(this);
+                 LinearLayout folderRow = new LinearLayout(this);
+                 folderRow.setOrientation(LinearLayout.HORIZONTAL);
+                 for (final String fName : folders) {
+                     Button bf = createPopupButton(fName.equals(currentFolder) ? "📂 " + fName : fName,
+                         fName.equals(currentFolder) ? "#DC2626" : "#374151");
+                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                     lp.setMargins(6, 4, 6, 4);
+                     bf.setLayoutParams(lp);
+                     bf.setPadding(26, 12, 26, 12);
+                     bf.setOnClickListener(v -> {
+                         currentFolder = fName;
+                         dismissPopupDirect();
+                         showFoldersDialog();
+                     });
+                     folderRow.addView(bf);
+                 }
+                 hScroll.addView(folderRow);
+                 box.addView(hScroll);
+                 final EditText etFolderInput = createPopupInput(box, "اسم المجلد (لإضافة مجلد جديد أو إعادة تسمية الحالي):", "", false, false);
+                 LinearLayout fActions = new LinearLayout(this);
+                 fActions.setOrientation(LinearLayout.HORIZONTAL);
+                 Button bAddFolder = createPopupButton("+ إضافة مجلد", "#2563EB");
+                 LinearLayout.LayoutParams fp1 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                 fp1.setMargins(0, 6, 4, 6);
+                 bAddFolder.setLayoutParams(fp1);
+                 bAddFolder.setOnClickListener(v -> {
+                     String fn = etFolderInput.getText().toString().trim();
+                     if (fn.isEmpty()) fn = "مجلد " + (folders.size() + 1);
+                     StorageManager.addFolder(this, fn);
+                     currentFolder = fn;
+                     dismissPopupDirect();
+                     showFoldersDialog();
+                 });
+                 Button bRenFolder = createPopupButton("✏️ تسمية الحالي", "#4B5563");
+                 LinearLayout.LayoutParams fp2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                 fp2.setMargins(4, 6, 4, 6);
+                 bRenFolder.setLayoutParams(fp2);
+                 bRenFolder.setOnClickListener(v -> {
+                     String nn = etFolderInput.getText().toString().trim();
+                     if (nn.isEmpty()) {
+                         showSingleToast("اكتب الاسم الجديد في الخانة أولاً");
+                         return;
+                     }
+                     if (StorageManager.renameFolder(this, currentFolder, nn)) {
+                         currentFolder = nn;
+                         dismissPopupDirect();
+                         showFoldersDialog();
+                     }
+                 });
+                 Button bDelFolder = createPopupButton("🗑️ حذف المجلد", "#991B1B");
+                 LinearLayout.LayoutParams fp3 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                 fp3.setMargins(4, 6, 0, 6);
+                 bDelFolder.setLayoutParams(fp3);
+                 bDelFolder.setOnClickListener(v -> {
+                     if (folders.size() <= 1) {
+                         showSingleToast("لا يمكن حذف المجلد الأخير (يجب بقاء مجلد واحد على الأقل)");
+                         return;
+                     }
+                     final String toDel = currentFolder;
+                     showConfirmDialog("حذف المجلد", "هل أنت متأكد من حذف المجلد (" + toDel + ") وجميع السجلات بداخله؟", () -> {
+                         StorageManager.deleteFolder(this, toDel);
+                         List<String> rem = StorageManager.getFolderNames(this);
+                         currentFolder = rem.get(0);
+                         showFoldersDialog();
+                     });
+                 });
+                 fActions.addView(bAddFolder);
+                 fActions.addView(bRenFolder);
+                 fActions.addView(bDelFolder);
+                 box.addView(fActions);
+                 final EditText etProfileName = createPopupInput(box, "اسم السجل لحفظ الخطوات الحالية (" + steps.size() + " خطوة):", "", false, false);
+                 Button bSaveProf = createPopupButton("💾 حفظ السجل الحالي في (" + currentFolder + ")", "#16A34A");
+                 bSaveProf.setOnClickListener(v -> {
+                     String pn = etProfileName.getText().toString().trim();
+                     if (pn.isEmpty()) pn = "سجل " + (StorageManager.getProfileNames(this, currentFolder).size() + 1);
+                     StorageManager.saveProfile(this, currentFolder, pn, steps);
+                     StorageManager.clearAutoBackup(this);
+                     showSingleToast("تم حفظ (" + pn + ") بنجاح!");
+                     dismissPopupDirect();
+                     showFoldersDialog();
+                 });
+                 box.addView(bSaveProf);
+                 List<String> profiles = StorageManager.getProfileNames(this, currentFolder);
+                 for (final String pName : profiles) {
+                     LinearLayout pRow = new LinearLayout(this);
+                     pRow.setOrientation(LinearLayout.HORIZONTAL);
+                     Button bLoad = createPopupButton("▶ تحميل: " + pName, "#374151");
+                     bLoad.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                     bLoad.setOnClickListener(v -> {
+                         loadScenarioSteps(StorageManager.loadProfile(this, currentFolder, pName));
+                         showSingleToast("تم تحميل: " + pName);
+                         dismissPopupDirect();
+                     });
+                     Button bDel = createPopupButton("🗑️", "#991B1B");
+                     LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(110, LinearLayout.LayoutParams.WRAP_CONTENT);
+                     dlp.setMargins(8, 8, 0, 8);
+                     bDel.setLayoutParams(dlp);
+                     bDel.setOnClickListener(v -> {
+                         showConfirmDialog("حذف السجل", "هل أنت متأكد من حذف السجل (" + pName + ") نهائياً؟", () -> {
+                             StorageManager.deleteProfile(this, currentFolder, pName);
+                             showFoldersDialog();
+                         });
+                     });
+                     pRow.addView(bLoad);
+                     pRow.addView(bDel);
+                     box.addView(pRow);
+                 }
+                 showPopupView(box, null);
+              }
           """)
           # --- نهاية النصف الأول من الجزء الخامس (5A) ---
           append_file("app/src/main/java/com/smartclicker/app/ClickerService.java", r"""
