@@ -54,6 +54,10 @@ jobs:
               rootProject.name = "RedAutoClicker"
               include ':app'
           """)
+                   write_file("gradle.properties", r"""
+             android.useAndroidX=true
+             android.enableJetifier=true
+          """)
           write_file("build.gradle", r"""
               plugins {
                   id 'com.android.application' version '8.2.2' apply false
@@ -70,8 +74,8 @@ jobs:
                       applicationId "com.smartclicker.app"
                       minSdk 24
                       targetSdk 28
-                      versionCode 6
-                      versionName "6.0"
+                      versionCode 7
+                      versionName "7.0"
                   }
                   compileOptions {
                       sourceCompatibility JavaVersion.VERSION_1_8
@@ -79,7 +83,8 @@ jobs:
                   }
               }
               dependencies {
-              }
+                 implementation 'com.google.mlkit:text-recognition:16.0.1'
+             }
           """)
           write_file("app/src/main/res/values/strings.xml", r"""
               <?xml version="1.0" encoding="utf-8"?>
@@ -177,134 +182,156 @@ jobs:
               }
           """)
           write_file("app/src/main/java/com/smartclicker/app/StepItem.java", r"""
-              package com.smartclicker.app;
-              import android.graphics.Color;
-              import android.view.WindowManager;
-              import org.json.JSONObject;
-              public class StepItem {
-                  public static final int TYPE_TAP = 0;
-                  public static final int TYPE_SWIPE = 1;
-                  public static final int TYPE_ZOOM_OUT = 2;
-                  public static final int TYPE_ZOOM_IN = 3;
-                  public static final int TYPE_JUMP = 4;
-                  public static final int TYPE_VISION_CHECK = 5;
-                  public int stepNum = 1;
-                  public int type = TYPE_TAP;
-                  public String name = "";
-                  public int x = 400, y = 400, x2 = 650, y2 = 550;
-                  public int delayMs = 300, durationMs = 60, repeatCount = 1;
-                  public boolean useRandom = true, useCustomRandom = false;
-                  public int customRandPx = 11, customRandMs = 35, customRandDur = 15;
-                  public int jumpTargetStep = 1, jumpRepeatCount = 3;
-                  public transient int currentJumpCount = 0;
-                  public boolean useCondition = false;
-                  public boolean checkBeforeTap = true;
-                  public int condLogic = 0;
-                  public int condAMode = 0;
-                  public int condAX1 = 500, condAY1 = 500, condAX2 = 750, condAY2 = 500;
-                  public int condABoxW = 90, condABoxH = 90;
-                  public int condAColor = Color.rgb(30, 144, 255);
-                  public boolean condAColorPicked = false;
-                  public String condAGrid = "";
-                  public int condATol = 85, condAAreaPct = 70, condABarPct = 90;
-                  public int condBMode = 0;
-                  public int condBX1 = 500, condBY1 = 600, condBX2 = 750, condBY2 = 600;
-                  public int condBBoxW = 90, condBBoxH = 90;
-                  public int condBColor = Color.rgb(46, 204, 113);
-                  public boolean condBColorPicked = false;
-                  public String condBGrid = "";
-                  public int condBTol = 85, condBAreaPct = 70, condBBarPct = 90;
-                  public boolean condWaitMode = false;
-                  public int condRetryIntervalMs = 300, condWaitTimeoutMs = 3000, condConfirmCount = 1;
-                  public int condSuccessAction = 0, condSuccessJumpStep = 1;
-                  public int condFailAction = 1, condFailJumpStep = 1;
-                  public int condTimeoutAction = 1, condTimeoutJumpStep = 1;
-                  public transient TargetView primaryView, secondaryView;
-                  public transient WindowManager.LayoutParams primaryParams, secondaryParams;
-                  public String getTypeLabel() {
-                      switch (type) {
-                          case TYPE_SWIPE: return "سحب ⇄";
-                          case TYPE_ZOOM_OUT: return "تصغير 🔍-";
-                          case TYPE_ZOOM_IN: return "تكبير 🔍+";
-                          case TYPE_JUMP: return "قفز ↺";
-                          case TYPE_VISION_CHECK: return "فحص بصري 👁️";
-                          default: return "لمسة 🎯";
-                      }
-                  }
-                  public boolean hasSecondaryPoint() {
-                      return type == TYPE_SWIPE || type == TYPE_ZOOM_OUT || type == TYPE_ZOOM_IN;
-                  }
-                  public JSONObject toJson() {
-                      JSONObject o = new JSONObject();
-                      try {
-                          o.put("stepNum", stepNum); o.put("type", type);
-                          o.put("name", name == null ? "" : name);
-                          o.put("x", primaryParams != null ? primaryParams.x : x);
-                          o.put("y", primaryParams != null ? primaryParams.y : y);
-                          o.put("x2", secondaryParams != null ? secondaryParams.x : x2);
-                          o.put("y2", secondaryParams != null ? secondaryParams.y : y2);
-                          o.put("delayMs", delayMs); o.put("durationMs", durationMs);
-                          o.put("repeatCount", Math.max(1, repeatCount));
-                          o.put("useRandom", useRandom); o.put("useCustomRandom", useCustomRandom);
-                          o.put("customRandPx", customRandPx); o.put("customRandMs", customRandMs); o.put("customRandDur", customRandDur);
-                          o.put("jumpTargetStep", jumpTargetStep); o.put("jumpRepeatCount", jumpRepeatCount);
-                          o.put("useCondition", useCondition || type == TYPE_VISION_CHECK);
-                          o.put("checkBeforeTap", checkBeforeTap); o.put("condLogic", condLogic);
-                          o.put("condAMode", condAMode); o.put("condAX1", condAX1); o.put("condAY1", condAY1);
-                          o.put("condAX2", condAX2); o.put("condAY2", condAY2);
-                          o.put("condABoxW", condABoxW); o.put("condABoxH", condABoxH);
-                          o.put("condAColor", condAColor); o.put("condAColorPicked", condAColorPicked);
-                          o.put("condAGrid", condAGrid); o.put("condATol", condATol);
-                          o.put("condAAreaPct", condAAreaPct); o.put("condABarPct", condABarPct);
-                          o.put("condBMode", condBMode); o.put("condBX1", condBX1); o.put("condBY1", condBY1);
-                          o.put("condBX2", condBX2); o.put("condBY2", condBY2);
-                          o.put("condBBoxW", condBBoxW); o.put("condBBoxH", condBBoxH);
-                          o.put("condBColor", condBColor); o.put("condBColorPicked", condBColorPicked);
-                          o.put("condBGrid", condBGrid); o.put("condBTol", condBTol);
-                          o.put("condBAreaPct", condBAreaPct); o.put("condBBarPct", condBBarPct);
-                          o.put("condWaitMode", condWaitMode); o.put("condRetryIntervalMs", condRetryIntervalMs);
-                          o.put("condWaitTimeoutMs", condWaitTimeoutMs); o.put("condConfirmCount", condConfirmCount);
-                          o.put("condSuccessAction", condSuccessAction); o.put("condSuccessJumpStep", condSuccessJumpStep);
-                          o.put("condFailAction", condFailAction); o.put("condFailJumpStep", condFailJumpStep);
-                          o.put("condTimeoutAction", condTimeoutAction); o.put("condTimeoutJumpStep", condTimeoutJumpStep);
-                      } catch (Exception ignored) {}
-                      return o;
-                  }
-                  public static StepItem fromJson(JSONObject o) {
-                      StepItem s = new StepItem();
-                      s.stepNum = o.optInt("stepNum", 1); s.type = o.optInt("type", TYPE_TAP);
-                      s.name = o.optString("name", "");
-                      s.x = o.optInt("x", 400); s.y = o.optInt("y", 400);
-                      s.x2 = o.optInt("x2", 650); s.y2 = o.optInt("y2", 550);
-                      s.delayMs = o.optInt("delayMs", 300); s.durationMs = o.optInt("durationMs", 60);
-                      s.repeatCount = Math.max(1, o.optInt("repeatCount", 1));
-                      s.useRandom = o.optBoolean("useRandom", true); s.useCustomRandom = o.optBoolean("useCustomRandom", false);
-                      s.customRandPx = o.optInt("customRandPx", 11); s.customRandMs = o.optInt("customRandMs", 35); s.customRandDur = o.optInt("customRandDur", 15);
-                      s.jumpTargetStep = o.optInt("jumpTargetStep", 1); s.jumpRepeatCount = o.optInt("jumpRepeatCount", 3);
-                      s.useCondition = o.optBoolean("useCondition", s.type == TYPE_VISION_CHECK);
-                      s.checkBeforeTap = o.optBoolean("checkBeforeTap", true); s.condLogic = o.optInt("condLogic", 0);
-                      s.condAMode = o.optInt("condAMode", 0); s.condAX1 = o.optInt("condAX1", 500); s.condAY1 = o.optInt("condAY1", 500);
-                      s.condAX2 = o.optInt("condAX2", 750); s.condAY2 = o.optInt("condAY2", 500);
-                      s.condABoxW = o.optInt("condABoxW", 90); s.condABoxH = o.optInt("condABoxH", 90);
-                      s.condAColor = o.optInt("condAColor", Color.rgb(30, 144, 255));
-                      s.condAColorPicked = o.optBoolean("condAColorPicked", false);
-                      s.condAGrid = o.optString("condAGrid", ""); s.condATol = o.optInt("condATol", 85);
-                      s.condAAreaPct = o.optInt("condAAreaPct", 70); s.condABarPct = o.optInt("condABarPct", 90);
-                      s.condBMode = o.optInt("condBMode", 0); s.condBX1 = o.optInt("condBX1", 500); s.condBY1 = o.optInt("condBY1", 600);
-                      s.condBX2 = o.optInt("condBX2", 750); s.condBY2 = o.optInt("condBY2", 600);
-                      s.condBBoxW = o.optInt("condBBoxW", 90); s.condBBoxH = o.optInt("condBBoxH", 90);
-                      s.condBColor = o.optInt("condBColor", Color.rgb(46, 204, 113));
-                      s.condBColorPicked = o.optBoolean("condBColorPicked", false);
-                      s.condBGrid = o.optString("condBGrid", ""); s.condBTol = o.optInt("condBTol", 85);
-                      s.condBAreaPct = o.optInt("condBAreaPct", 70); s.condBBarPct = o.optInt("condBBarPct", 90);
-                      s.condWaitMode = o.optBoolean("condWaitMode", false); s.condRetryIntervalMs = o.optInt("condRetryIntervalMs", 300);
-                      s.condWaitTimeoutMs = o.optInt("condWaitTimeoutMs", 3000); s.condConfirmCount = o.optInt("condConfirmCount", 1);
-                      s.condSuccessAction = o.optInt("condSuccessAction", 0); s.condSuccessJumpStep = o.optInt("condSuccessJumpStep", 1);
-                      s.condFailAction = o.optInt("condFailAction", 1); s.condFailJumpStep = o.optInt("condFailJumpStep", 1);
-                      s.condTimeoutAction = o.optInt("condTimeoutAction", 1); s.condTimeoutJumpStep = o.optInt("condTimeoutJumpStep", 1);
-                      return s;
-                  }
-              }
+             package com.smartclicker.app;
+             import android.graphics.Color;
+             import android.view.WindowManager;
+             import org.json.JSONObject;
+             public class StepItem {
+                 public static final int TYPE_TAP = 0;
+                 public static final int TYPE_SWIPE = 1;
+                 public static final int TYPE_ZOOM_OUT = 2;
+                 public static final int TYPE_ZOOM_IN = 3;
+                 public static final int TYPE_JUMP = 4;
+                 public static final int TYPE_VISION_CHECK = 5;
+                 public int stepNum = 1;
+                 public int type = TYPE_TAP;
+                 public String name = "";
+                 public int x = 400, y = 400, x2 = 650, y2 = 550;
+                 public int delayMs = 300, durationMs = 60, repeatCount = 1;
+                 public boolean useRandom = true, useCustomRandom = false;
+                 public int customRandPx = 11, customRandMs = 35, customRandDur = 15;
+                 public int jumpTargetStep = 1, jumpRepeatCount = 3;
+                 public transient int currentJumpCount = 0;
+                 public boolean useCondition = false;
+                 public boolean checkBeforeTap = true;
+                 public int condLogic = 0;
+                 public int condAMode = 0;
+                 public int condAX1 = 500, condAY1 = 500, condAX2 = 750, condAY2 = 500;
+                 public int condABoxW = 90, condABoxH = 90;
+                 public int condAColor = Color.rgb(30, 144, 255);
+                 public boolean condAColorPicked = false;
+                 public String condAGrid = "";
+                 public int condATol = 85, condAAreaPct = 70, condABarPct = 90;
+                 public int condAOcrCx = 500, condAOcrCy = 500, condAOcrW = 200, condAOcrH = 100;
+                 public String condAOcrExpected = "";
+                 public int condAOcrOperator = 0;
+                 public int condBMode = 0;
+                 public int condBX1 = 500, condBY1 = 600, condBX2 = 750, condBY2 = 600;
+                 public int condBBoxW = 90, condBBoxH = 90;
+                 public int condBColor = Color.rgb(46, 204, 113);
+                 public boolean condBColorPicked = false;
+                 public String condBGrid = "";
+                 public int condBTol = 85, condBAreaPct = 70, condBBarPct = 90;
+                 public int condBOcrCx = 500, condBOcrCy = 600, condBOcrW = 200, condBOcrH = 100;
+                 public String condBOcrExpected = "";
+                 public int condBOcrOperator = 0;
+                 public boolean condWaitMode = false;
+                 public int condRetryIntervalMs = 300, condWaitTimeoutMs = 3000, condConfirmCount = 1;
+                 public int condSuccessAction = 0, condSuccessJumpStep = 1;
+                 public int condFailAction = 1, condFailJumpStep = 1;
+                 public int condTimeoutAction = 1, condTimeoutJumpStep = 1;
+                 public transient TargetView primaryView, secondaryView;
+                 public transient WindowManager.LayoutParams primaryParams, secondaryParams;
+                 public String getTypeLabel() {
+                     switch (type) {
+                         case TYPE_SWIPE: return "سحب ⇄";
+                         case TYPE_ZOOM_OUT: return "تصغير 🔍-";
+                         case TYPE_ZOOM_IN: return "تكبير 🔍+";
+                         case TYPE_JUMP: return "قفز ↺";
+                         case TYPE_VISION_CHECK: return "فحص بصري 👁️";
+                         default: return "لمسة 🎯";
+                     }
+                 }
+                 public boolean hasSecondaryPoint() {
+                     return type == TYPE_SWIPE || type == TYPE_ZOOM_OUT || type == TYPE_ZOOM_IN;
+                 }
+                 public JSONObject toJson() {
+                     JSONObject o = new JSONObject();
+                     try {
+                         o.put("stepNum", stepNum); o.put("type", type);
+                         o.put("name", name == null ? "" : name);
+                         o.put("x", primaryParams != null ? primaryParams.x : x);
+                         o.put("y", primaryParams != null ? primaryParams.y : y);
+                         o.put("x2", secondaryParams != null ? secondaryParams.x : x2);
+                         o.put("y2", secondaryParams != null ? secondaryParams.y : y2);
+                         o.put("delayMs", delayMs); o.put("durationMs", durationMs);
+                         o.put("repeatCount", Math.max(1, repeatCount));
+                         o.put("useRandom", useRandom); o.put("useCustomRandom", useCustomRandom);
+                         o.put("customRandPx", customRandPx); o.put("customRandMs", customRandMs); o.put("customRandDur", customRandDur);
+                         o.put("jumpTargetStep", jumpTargetStep); o.put("jumpRepeatCount", jumpRepeatCount);
+                         o.put("useCondition", useCondition || type == TYPE_VISION_CHECK);
+                         o.put("checkBeforeTap", checkBeforeTap); o.put("condLogic", condLogic);
+                         o.put("condAMode", condAMode); o.put("condAX1", condAX1); o.put("condAY1", condAY1);
+                         o.put("condAX2", condAX2); o.put("condAY2", condAY2);
+                         o.put("condABoxW", condABoxW); o.put("condABoxH", condABoxH);
+                         o.put("condAColor", condAColor); o.put("condAColorPicked", condAColorPicked);
+                         o.put("condAGrid", condAGrid); o.put("condATol", condATol);
+                         o.put("condAAreaPct", condAAreaPct); o.put("condABarPct", condABarPct);
+                         o.put("condAOcrCx", condAOcrCx); o.put("condAOcrCy", condAOcrCy);
+                         o.put("condAOcrW", condAOcrW); o.put("condAOcrH", condAOcrH);
+                         o.put("condAOcrExpected", condAOcrExpected == null ? "" : condAOcrExpected);
+                         o.put("condAOcrOperator", condAOcrOperator);
+                         o.put("condBMode", condBMode); o.put("condBX1", condBX1); o.put("condBY1", condBY1);
+                         o.put("condBX2", condBX2); o.put("condBY2", condBY2);
+                         o.put("condBBoxW", condBBoxW); o.put("condBBoxH", condBBoxH);
+                         o.put("condBColor", condBColor); o.put("condBColorPicked", condBColorPicked);
+                         o.put("condBGrid", condBGrid); o.put("condBTol", condBTol);
+                         o.put("condBAreaPct", condBAreaPct); o.put("condBBarPct", condBBarPct);
+                         o.put("condBOcrCx", condBOcrCx); o.put("condBOcrCy", condBOcrCy);
+                         o.put("condBOcrW", condBOcrW); o.put("condBOcrH", condBOcrH);
+                         o.put("condBOcrExpected", condBOcrExpected == null ? "" : condBOcrExpected);
+                         o.put("condBOcrOperator", condBOcrOperator);
+                         o.put("condWaitMode", condWaitMode); o.put("condRetryIntervalMs", condRetryIntervalMs);
+                         o.put("condWaitTimeoutMs", condWaitTimeoutMs); o.put("condConfirmCount", condConfirmCount);
+                         o.put("condSuccessAction", condSuccessAction); o.put("condSuccessJumpStep", condSuccessJumpStep);
+                         o.put("condFailAction", condFailAction); o.put("condFailJumpStep", condFailJumpStep);
+                         o.put("condTimeoutAction", condTimeoutAction); o.put("condTimeoutJumpStep", condTimeoutJumpStep);
+                     } catch (Exception ignored) {}
+                     return o;
+                 }
+                 public static StepItem fromJson(JSONObject o) {
+                     StepItem s = new StepItem();
+                     s.stepNum = o.optInt("stepNum", 1); s.type = o.optInt("type", TYPE_TAP);
+                     s.name = o.optString("name", "");
+                     s.x = o.optInt("x", 400); s.y = o.optInt("y", 400);
+                     s.x2 = o.optInt("x2", 650); s.y2 = o.optInt("y2", 550);
+                     s.delayMs = o.optInt("delayMs", 300); s.durationMs = o.optInt("durationMs", 60);
+                     s.repeatCount = Math.max(1, o.optInt("repeatCount", 1));
+                     s.useRandom = o.optBoolean("useRandom", true); s.useCustomRandom = o.optBoolean("useCustomRandom", false);
+                     s.customRandPx = o.optInt("customRandPx", 11); s.customRandMs = o.optInt("customRandMs", 35); s.customRandDur = o.optInt("customRandDur", 15);
+                     s.jumpTargetStep = o.optInt("jumpTargetStep", 1); s.jumpRepeatCount = o.optInt("jumpRepeatCount", 3);
+                     s.useCondition = o.optBoolean("useCondition", s.type == TYPE_VISION_CHECK);
+                     s.checkBeforeTap = o.optBoolean("checkBeforeTap", true); s.condLogic = o.optInt("condLogic", 0);
+                     s.condAMode = o.optInt("condAMode", 0); s.condAX1 = o.optInt("condAX1", 500); s.condAY1 = o.optInt("condAY1", 500);
+                     s.condAX2 = o.optInt("condAX2", 750); s.condAY2 = o.optInt("condAY2", 500);
+                     s.condABoxW = o.optInt("condABoxW", 90); s.condABoxH = o.optInt("condABoxH", 90);
+                     s.condAColor = o.optInt("condAColor", Color.rgb(30, 144, 255));
+                     s.condAColorPicked = o.optBoolean("condAColorPicked", false);
+                     s.condAGrid = o.optString("condAGrid", ""); s.condATol = o.optInt("condATol", 85);
+                     s.condAAreaPct = o.optInt("condAAreaPct", 70); s.condABarPct = o.optInt("condABarPct", 90);
+                     s.condAOcrCx = o.optInt("condAOcrCx", 500); s.condAOcrCy = o.optInt("condAOcrCy", 500);
+                     s.condAOcrW = o.optInt("condAOcrW", 200); s.condAOcrH = o.optInt("condAOcrH", 100);
+                     s.condAOcrExpected = o.optString("condAOcrExpected", "");
+                     s.condAOcrOperator = o.optInt("condAOcrOperator", 0);
+                     s.condBMode = o.optInt("condBMode", 0); s.condBX1 = o.optInt("condBX1", 500); s.condBY1 = o.optInt("condBY1", 600);
+                     s.condBX2 = o.optInt("condBX2", 750); s.condBY2 = o.optInt("condBY2", 600);
+                     s.condBBoxW = o.optInt("condBBoxW", 90); s.condBBoxH = o.optInt("condBBoxH", 90);
+                     s.condBColor = o.optInt("condBColor", Color.rgb(46, 204, 113));
+                     s.condBColorPicked = o.optBoolean("condBColorPicked", false);
+                     s.condBGrid = o.optString("condBGrid", ""); s.condBTol = o.optInt("condBTol", 85);
+                     s.condBAreaPct = o.optInt("condBAreaPct", 70); s.condBBarPct = o.optInt("condBBarPct", 90);
+                     s.condBOcrCx = o.optInt("condBOcrCx", 500); s.condBOcrCy = o.optInt("condBOcrCy", 600);
+                     s.condBOcrW = o.optInt("condBOcrW", 200); s.condBOcrH = o.optInt("condBOcrH", 100);
+                     s.condBOcrExpected = o.optString("condBOcrExpected", "");
+                     s.condBOcrOperator = o.optInt("condBOcrOperator", 0);
+                     s.condWaitMode = o.optBoolean("condWaitMode", false); s.condRetryIntervalMs = o.optInt("condRetryIntervalMs", 300);
+                     s.condWaitTimeoutMs = o.optInt("condWaitTimeoutMs", 3000); s.condConfirmCount = o.optInt("condConfirmCount", 1);
+                     s.condSuccessAction = o.optInt("condSuccessAction", 0); s.condSuccessJumpStep = o.optInt("condSuccessJumpStep", 1);
+                     s.condFailAction = o.optInt("condFailAction", 1); s.condFailJumpStep = o.optInt("condFailJumpStep", 1);
+                     s.condTimeoutAction = o.optInt("condTimeoutAction", 1); s.condTimeoutJumpStep = o.optInt("condTimeoutJumpStep", 1);
+                     return s;
+                 }
+             }
           """)
           write_file("app/src/main/java/com/smartclicker/app/TargetView.java", r"""
               package com.smartclicker.app;
@@ -4240,6 +4267,6 @@ jobs:
       - name: Publish APK to Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v6.0.${{ github.run_number }}
-          name: "Red Auto Clicker v6.0 #${{ github.run_number }}"
+          tag_name: v7.0.${{ github.run_number }}
+          name: "Red Auto Clicker v7.0 #${{ github.run_number }}"
           files: app/build/outputs/apk/debug/app-debug.apk
