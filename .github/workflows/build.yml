@@ -1230,7 +1230,6 @@ jobs:
              import android.util.DisplayMetrics;
              import android.view.Gravity;
              import android.view.MotionEvent;
-             import android.view.Choreographer;
              import android.view.View;
              import android.view.WindowManager;
              import android.widget.Button;
@@ -1263,7 +1262,6 @@ jobs:
                  public interface OcrEvalCallback {
                      void onResult(boolean isMatch, long readValA, long readValB);
                  }
-                 }
                  private static final TextRecognizer textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
                  public static void evaluateStepAsync(final StepItem s, final Bitmap bmp, final OcrEvalCallback callback) {
                      if (bmp == null) { callback.onResult(false, -1, -1); return; }
@@ -1273,27 +1271,27 @@ jobs:
                          boolean res = evaluateStepSync(s, bmp);
                          callback.onResult(res, -1, -1);
                          return;
-                }
-                evaluateSubAsync(s, false, s.condAMode, bmp, (resA, valA) -> {
-                    if (s.condLogic == 0 || !isBModeOcr) {
-                        boolean resB = false;
-                        if (s.condLogic > 0) {
-                            resB = evaluateSingleSub(bmp, s.condBMode, s.condBX1, s.condBY1, s.condBX2, s.condBY2,
-                                s.condBBoxW, s.condBBoxH, s.condBColor, s.condBGrid, s.condBTol, s.condBAreaPct, s.condBBarPct);
-                        }
-                        boolean finalRes = (s.condLogic == 0) ? resA : ((s.condLogic == 1) ? (resA && resB) : (resA || resB));
-                        callback.onResult(finalRes, valA, -1);
-                        return;
-                }
-                evaluateSubAsync(s, true, s.condBMode, bmp, (resB, valB) -> {
-                    boolean finalRes;
-                    if (s.condLogic == 1) finalRes = resA && resB;
-                    else if (s.condLogic == 2) finalRes = resA || resB;
-                    else finalRes = resA;
-                    callback.onResult(finalRes, valA, valB);
-                });
-            });
-          }
+                     }
+                     evaluateSubAsync(s, false, s.condAMode, bmp, (resA, valA) -> {
+                         if (s.condLogic == 0 || !isBModeOcr) {
+                             boolean resB = false;
+                             if (s.condLogic > 0) {
+                                 resB = evaluateSingleSub(bmp, s.condBMode, s.condBX1, s.condBY1, s.condBX2, s.condBY2,
+                                     s.condBBoxW, s.condBBoxH, s.condBColor, s.condBGrid, s.condBTol, s.condBAreaPct, s.condBBarPct);
+                             }
+                             boolean finalRes = (s.condLogic == 0) ? resA : ((s.condLogic == 1) ? (resA && resB) : (resA || resB));
+                             callback.onResult(finalRes, valA, -1);
+                             return;
+                         }
+                         evaluateSubAsync(s, true, s.condBMode, bmp, (resB, valB) -> {
+                             boolean finalRes;
+                             if (s.condLogic == 1) finalRes = resA && resB;
+                             else if (s.condLogic == 2) finalRes = resA || resB;
+                             else finalRes = resA;
+                             callback.onResult(finalRes, valA, valB);
+                         });
+                     });
+                 }
                  private interface SubEvalCallback { void onResult(boolean res, long val); }
                  private static void evaluateSubAsync(StepItem s, boolean isB, int mode, Bitmap bmp, final SubEvalCallback cb) {
                      if (mode != 3) {
