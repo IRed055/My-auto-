@@ -1,5 +1,5 @@
 
-name: Build Red Auto Clicker v7.0
+name: Build Red Auto Clicker v6.0
 
 on:
   push:
@@ -54,7 +54,7 @@ jobs:
               rootProject.name = "RedAutoClicker"
               include ':app'
           """)
-                   write_file("gradle.properties", r"""
+          write_file("gradle.properties", r"""
              android.useAndroidX=true
              android.enableJetifier=true
           """)
