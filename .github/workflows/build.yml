@@ -2851,6 +2851,7 @@ jobs:
                          (item.useCondition || item.type == StepItem.TYPE_VISION_CHECK) ? "#0891B2" : "#4B5563");
                      bCond.setOnClickListener(v -> {
                          saveLogic.run();
+                         item.useCondition = true; // إجبار التفعيل التلقائي عند الدخول
                          showConditionDialog(item);
                      });
                      box.addView(bCond);
