@@ -2194,7 +2194,34 @@ jobs:
                      bubbleView.getPaint().setFakeBoldText(true);
                      bubbleView.setGravity(Gravity.CENTER);
                      bubbleView.setVisibility(View.GONE);
-                     bubbleView.setOnClickListener(v -> expandFromBubble());
+                     bubbleView.setOnTouchListener(new View.OnTouchListener() {
+                         int initX, initY;
+                         float touchX, touchY;
+                         boolean isDragging = false;
+                         @Override
+                         public boolean onTouch(View v, MotionEvent e) {
+                             if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                 initX = barParams.x; initY = barParams.y;
+                                 touchX = e.getRawX(); touchY = e.getRawY();
+                                 isDragging = false;
+                                 return true;
+                             } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                 if (Math.abs(e.getRawX() - touchX) > 15 || Math.abs(e.getRawY() - touchY) > 15) {
+                                     isDragging = true;
+                                     barParams.x = initX + (int) (e.getRawX() - touchX);
+                                     barParams.y = initY + (int) (e.getRawY() - touchY);
+                                     wm.updateViewLayout(rootBarContainer, barParams);
+                                 }
+                                 return true;
+                             } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                 if (!isDragging) {
+                                     expandFromBubble();
+                                 }
+                                 return true;
+                             }
+                             return false;
+                         }
+                     });
                      rootBarContainer.addView(bubbleView);
                      buildBarLayout = new LinearLayout(this);
                      buildBarLayout.setOrientation(isHoriz ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
@@ -2296,12 +2323,6 @@ jobs:
                      TextView btnStop = createBarButton("⏹", "#DC2626");
                      btnStop.setOnClickListener(v -> stopScenario());
                      playBarLayout.addView(btnStop);
-                     tvPlayStatus = new TextView(this);
-                     tvPlayStatus.setText("0/0");
-                     tvPlayStatus.setTextColor(Color.WHITE);
-                     tvPlayStatus.setTextSize(12);
-                     tvPlayStatus.setPadding(14, 0, 10, 0);
-                     playBarLayout.addView(tvPlayStatus);
                      rootBarContainer.addView(playBarLayout);
                      rootBarContainer.setAlpha(alpha);
                      barParams = new WindowManager.LayoutParams(
@@ -2379,7 +2400,6 @@ jobs:
                  }
                  private void updateHudText(String text) {
                      if (hudView != null) hudView.setText(text);
-                     if (tvPlayStatus != null) tvPlayStatus.setText(text);
                  }
                  public void refreshBarStyle() {
                      if (rootBarContainer == null) return;
@@ -2464,6 +2484,21 @@ jobs:
                          buildBarLayout.setVisibility(View.VISIBLE);
                          scheduleAutoShrink();
                      }
+                     
+                     // منع خروج الشريط عن حدود الشاشة بعد التكبير
+                     rootBarContainer.post(() -> {
+                         DisplayMetrics dm = getRealDisplayMetrics();
+                         int maxX = dm.widthPixels - rootBarContainer.getWidth();
+                         int maxY = dm.heightPixels - rootBarContainer.getHeight();
+                         boolean changed = false;
+                         if (barParams.x > maxX) { barParams.x = Math.max(0, maxX); changed = true; }
+                         if (barParams.y > maxY) { barParams.y = Math.max(0, maxY); changed = true; }
+                         if (barParams.x < 0) { barParams.x = 0; changed = true; }
+                         if (barParams.y < 0) { barParams.y = 0; changed = true; }
+                         if (changed) {
+                             wm.updateViewLayout(rootBarContainer, barParams);
+                         }
+                     });
                  }
                  private void setupDragAndLock(View grip) {
                      grip.setOnTouchListener(new View.OnTouchListener() {
@@ -2485,9 +2520,16 @@ jobs:
                                  wm.updateViewLayout(rootBarContainer, barParams);
                                  return true;
                              } else if (e.getAction() == MotionEvent.ACTION_UP) {
-                                 if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15
-                                     && System.currentTimeMillis() - downTime > 500) {
-                                     showGripOptionsDialog();
+                                 long pressDuration = System.currentTimeMillis() - downTime;
+                                 if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15) {
+                                     if (pressDuration < 500) {
+                                         // ضغطة سريعة: تصغير الشريط فوراً
+                                         buildBarLayout.setVisibility(View.GONE);
+                                         bubbleView.setVisibility(View.VISIBLE);
+                                     } else {
+                                         // ضغطة مطولة: فتح الخيارات
+                                         showGripOptionsDialog();
+                                     }
                                  }
                                  return true;
                              }
