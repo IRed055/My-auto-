@@ -3736,6 +3736,8 @@ jobs:
                      isPaused = false;
                      handler.removeCallbacksAndMessages(null);
                      clearAllHighlights();
+                     tempHiddenMarkers.clear();
+                     applyVisibilityRules();
                      setMarkersTouchable(true);
                      playBarLayout.setVisibility(View.GONE);
                      buildBarLayout.setVisibility(View.VISIBLE);
