@@ -807,7 +807,7 @@ jobs:
                      if (sbBubble != null) sbBubble.setProgress(valBubble - 60);
                      if (sbAlpha != null) sbAlpha.setProgress(valAlpha - 25);
                      if (sbIdleAlpha != null) sbIdleAlpha.setProgress(valIdleAlpha - 15);
-                     if (etShrinkSec != null) etShrinkSec.setText("4");
+                     if (etShrinkSec != null) etShrinkSec.setText("20");
                      if (cbHorizontal != null) cbHorizontal.setChecked(true);
                      if (cbShowHud != null) cbShowHud.setChecked(true);
                      if (etDelay != null) etDelay.setText("300");
@@ -925,7 +925,7 @@ jobs:
                      sbBubble = addInteractiveSeekBar(box, "حجم فقاعة الانكماش (R):", 60, 140, valBubble, v -> { valBubble = v; });
                      sbAlpha = addInteractiveSeekBar(box, "شفافية السحابة والدوائر أثناء النشاط %:", 25, 100, valAlpha, v -> { valAlpha = v; updateLivePreview(); });
                      sbIdleAlpha = addInteractiveSeekBar(box, "شفافية الفقاعة (R) عند الخمول %:", 15, 100, valIdleAlpha, v -> { valIdleAlpha = v; });
-                     etShrinkSec = addInputField(box, "ثواني عدم اللمس قبل الانكماش لفقاعة R (0 لإلغائه):", String.valueOf(prefs.getInt("def_shrink_sec", 4)), false);
+                     etShrinkSec = addInputField(box, "ثواني عدم اللمس قبل الانكماش لفقاعة R (0 لإلغائه):", String.valueOf(prefs.getInt("def_shrink_sec", 20)), false);
                      cbHorizontal = new CheckBox(this);
                      cbHorizontal.setText("عرض السحابة العائمة بشكل أفقي (عرضي)");
                      cbHorizontal.setTextColor(Color.WHITE);
@@ -2444,7 +2444,7 @@ jobs:
                      shrinkHandler.removeCallbacksAndMessages(null);
                      if (isRunning || isPaused || rootBarContainer == null) return;
                      SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                     int sec = prefs.getInt("def_shrink_sec", 4);
+                     int sec = prefs.getInt("def_shrink_sec", 20);
                      final float idleAlpha = prefs.getInt("idle_alpha", 55) / 100f;
                      if (sec <= 0) return;
                      shrinkHandler.postDelayed(() -> {
