@@ -1477,11 +1477,14 @@ jobs:
                              }
                              int tx = pos[0], ty = pos[1];
                              p.setStyle(Paint.Style.STROKE);
-                             p.setStrokeWidth(4f);
-                             p.setColor(Color.BLACK);
+                             p.setStrokeWidth(5.5f);
+                             p.setColor(Color.WHITE);
                              canvas.drawCircle(tx, ty, 24f, p);
+                             canvas.drawLine(tx - 34, ty, tx + 34, ty, p);
+                             canvas.drawLine(tx, ty - 34, tx, ty + 34, p);
+                             
                              p.setStrokeWidth(2.5f);
-                             p.setColor(Color.YELLOW);
+                             p.setColor(Color.BLACK);
                              canvas.drawCircle(tx, ty, 24f, p);
                              canvas.drawLine(tx - 34, ty, tx + 34, ty, p);
                              canvas.drawLine(tx, ty - 34, tx, ty + 34, p);
@@ -1704,8 +1707,15 @@ jobs:
                                  float tx = ax + (bx - ax) * r;
                                  float ty = ay + (by - ay) * r;
                                  p.setStyle(Paint.Style.FILL);
-                                 p.setColor(i == 5 ? Color.YELLOW : Color.WHITE);
-                                 canvas.drawCircle(tx, ty, i == 5 ? 5.5f : 3.5f, p);
+                                 if (i == 5) {
+                                    p.setColor(Color.WHITE);
+                                    canvas.drawCircle(tx, ty, 7f, p);
+                                    p.setColor(Color.BLACK);
+                                    canvas.drawCircle(tx, ty, 4.5f, p);
+                                 } else {
+                                    p.setColor(Color.WHITE);
+                                    canvas.drawCircle(tx, ty, 3.5f, p);
+                                 }
                              }
                              drawDirectionArrow(canvas, ax, ay, ax + (bx - ax) * 0.35f, ay + (by - ay) * 0.35f, 18f, p);
                              drawDirectionArrow(canvas, ax, ay, ax + (bx - ax) * 0.70f, ay + (by - ay) * 0.70f, 18f, p);
