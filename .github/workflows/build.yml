@@ -4636,6 +4636,7 @@ jobs:
                  }
              }
              @Override public void onInterrupt() {}
+             }
           """)
           PYEOF
       - name: Setup Gradle
