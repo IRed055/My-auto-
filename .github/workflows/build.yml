@@ -3696,7 +3696,7 @@ jobs:
                      applyVisibilityRules();
                  }
              }
-                          private void setAllMarkersVisibleTemp(boolean show) {
+             private void setAllMarkersVisibleTemp(boolean show) {
                  if (!show) {
                      for (StepItem s : steps) {
                          if (s.primaryView != null) s.primaryView.setVisibility(View.GONE);
