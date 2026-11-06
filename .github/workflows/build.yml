@@ -1871,6 +1871,7 @@ jobs:
              import android.view.Gravity;
              import android.view.KeyEvent;
              import android.view.MotionEvent;
+             import android.view.Choreographer;
              import android.view.View;
              import android.view.WindowManager;
              import android.view.accessibility.AccessibilityEvent;
@@ -3017,10 +3018,10 @@ jobs:
                          saveAllCond.run();
                          tvTestResultBox.setText("⏳ جاري التقاط الشاشة وفحص الألوان بدقة...");
                          tvTestResultBox.setTextColor(Color.parseColor("#FBBF24"));
-                         if (activePopupDialog != null) activePopupDialog.setVisibility(View.INVISIBLE);
-                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.INVISIBLE);
+                         if (activePopupDialog != null) activePopupDialog.setVisibility(View.GONE);
+                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
                          setAllMarkersVisibleTemp(false);
-                         handler.postDelayed(() -> captureScreenAsync(true, bmp -> {
+                         Choreographer.getInstance().postFrameCallback(frameTimeNanos -> Choreographer.getInstance().postFrameCallback(frameTimeNanos1 -> captureScreenAsync(true, bmp -> {
                              if (activePopupDialog != null) activePopupDialog.setVisibility(View.VISIBLE);
                              if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
                              setAllMarkersVisibleTemp(true);
@@ -3051,7 +3052,7 @@ jobs:
                              bmp.recycle();
                              tvTestResultBox.setText(msg.toString());
                              tvTestResultBox.setTextColor(overall ? Color.parseColor("#34D399") : Color.parseColor("#F87171"));
-                         }), 140);
+                         })));
                      });
                      box.addView(bTestNow);
                      Button bDone = createPopupButton("💾 حفظ والعودة لإعدادات الخطوة", "#16A34A");
@@ -3203,13 +3204,11 @@ jobs:
                  private void launchVisionPicker(final StepItem item, final boolean isB, final int pickerAction) {
                      activePopupAutoSave = null;
                      dismissPopupDirect();
-                     if (rootBarContainer != null) rootBarContainer.setVisibility(View.INVISIBLE);
                      setAllMarkersVisibleTemp(false);
                      ScreenCaptureActivity.pendingActionAfterGrant = () -> launchVisionPicker(item, isB, pickerAction);
-                     handler.postDelayed(() -> captureScreenAsync(true, frozen -> {
-                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
-                         setAllMarkersVisibleTemp(true);
+                     Choreographer.getInstance().postFrameCallback(frameTimeNanos -> Choreographer.getInstance().postFrameCallback(frameTimeNanos1 -> captureScreenAsync(true, frozen -> {
                          if (frozen == null) {
+                             setAllMarkersVisibleTemp(true);
                              showConditionDialog(item);
                              return;
                          }
@@ -3229,6 +3228,7 @@ jobs:
                                  public void onPicked(int px, int py, int col) {
                                      pickerOverlayView = null;
                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                     setAllMarkersVisibleTemp(true);
                                      if (isB) {
                                          if (pickerAction == 0) { item.condBX1 = px; item.condBY1 = py; }
                                          item.condBColor = col;
@@ -3244,6 +3244,7 @@ jobs:
                                  public void onCancel() {
                                      pickerOverlayView = null;
                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                     setAllMarkersVisibleTemp(true);
                                      showConditionDialog(item);
                                  }
                              });
@@ -3253,6 +3254,7 @@ jobs:
                                  public void onPicked(int cx, int cy, int boxW, int boxH, int centerColor, String gridSig) {
                                      pickerOverlayView = null;
                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                     setAllMarkersVisibleTemp(true);
                                      if (isB) {
                                          item.condBX1 = cx; item.condBY1 = cy;
                                          item.condBBoxW = boxW; item.condBBoxH = boxH;
@@ -3270,6 +3272,7 @@ jobs:
                                  public void onCancel() {
                                      pickerOverlayView = null;
                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                     setAllMarkersVisibleTemp(true);
                                      showConditionDialog(item);
                                  }
                              });
@@ -3279,6 +3282,7 @@ jobs:
                                  public void onPicked(int ax, int ay, int bx, int by) {
                                      pickerOverlayView = null;
                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                     setAllMarkersVisibleTemp(true);
                                      if (isB) {
                                          item.condBX1 = ax; item.condBY1 = ay;
                                          item.condBX2 = bx; item.condBY2 = by;
@@ -3292,21 +3296,29 @@ jobs:
                                  public void onCancel() {
                                      pickerOverlayView = null;
                                      if (frozen != null && !frozen.isRecycled()) frozen.recycle();
+                                     setAllMarkersVisibleTemp(true);
                                      showConditionDialog(item);
                                  }
                              });
                          }
-                     }), 140);
+                     })));
                  }
                  private void setAllMarkersVisibleTemp(boolean show) {
                      if (!show) {
                          for (StepItem s : steps) {
-                             if (s.primaryView != null) s.primaryView.setVisibility(View.INVISIBLE);
-                             if (s.secondaryView != null) s.secondaryView.setVisibility(View.INVISIBLE);
+                             if (s.primaryView != null) s.primaryView.setVisibility(View.GONE);
+                             if (s.secondaryView != null) s.secondaryView.setVisibility(View.GONE);
                          }
-                         if (vectorOverlay != null) vectorOverlay.setVisibility(View.INVISIBLE);
+                         if (vectorOverlay != null) vectorOverlay.setVisibility(View.GONE);
+                         if (hudView != null) hudView.setVisibility(View.GONE);
+                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
                      } else {
                          if (vectorOverlay != null) vectorOverlay.setVisibility(View.VISIBLE);
+                         SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                         if (hudView != null) {
+                             hudView.setVisibility(prefs.getBoolean("show_hud", true) ? View.VISIBLE : View.GONE);
+                         }
+                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
                          applyVisibilityRules();
                      }
                  }
@@ -3778,13 +3790,42 @@ jobs:
                          executeGroupGestures(group, leader, uniqueSteps, totalReps);
                      }, waitMs);
                  }
+                                  private void hideMarkersForCapture(StepItem leader) {
+                     int x1 = 0, y1 = 0, w1 = 0, h1 = 0;
+                     boolean hasArea = false;
+                     if (leader.useCondition) {
+                         if (leader.condAMode == 0) { x1 = leader.condAX1; y1 = leader.condAY1; w1 = 40; h1 = 40; hasArea = true; }
+                         else if (leader.condAMode == 1) { x1 = leader.condAX1; y1 = leader.condAY1; w1 = leader.condABoxW; h1 = leader.condABoxH; hasArea = true; }
+                         else if (leader.condAMode == 2) { x1 = Math.min(leader.condAX1, leader.condAX2); y1 = Math.min(leader.condAY1, leader.condAY2); w1 = Math.abs(leader.condAX2 - leader.condAX1); h1 = Math.abs(leader.condAY2 - leader.condAY1); hasArea = true; }
+                     }
+                     if (hasArea) {
+                         for (StepItem s : steps) {
+                             if (s.primaryView != null) {
+                                 int[] loc = new int[2]; s.primaryView.getLocationOnScreen(loc);
+                                 int cx = loc[0] + s.primaryView.getWidth()/2, cy = loc[1] + s.primaryView.getHeight()/2;
+                                 if (Math.abs(cx - x1) <= w1/2 + 40 && Math.abs(cy - y1) <= h1/2 + 40) {
+                                     s.primaryView.setVisibility(View.GONE);
+                                 }
+                             }
+                             if (s.secondaryView != null) {
+                                 int[] loc = new int[2]; s.secondaryView.getLocationOnScreen(loc);
+                                 int cx = loc[0] + s.secondaryView.getWidth()/2, cy = loc[1] + s.secondaryView.getHeight()/2;
+                                 if (Math.abs(cx - x1) <= w1/2 + 40 && Math.abs(cy - y1) <= h1/2 + 40) {
+                                     s.secondaryView.setVisibility(View.GONE);
+                                 }
+                             }
+                         }
+                     }
+                 }
                  private void evaluateConditionWithOptionalWait(final StepItem leader, final List<Integer> uniqueSteps, final boolean isStandaloneVision) {
                      final long startTime = System.currentTimeMillis();
                      final int[] consecutiveHits = new int[]{0};
                      final Runnable[] checkLoopRef = new Runnable[1];
                      checkLoopRef[0] = () -> {
                          if (!isRunning || isPaused) return;
-                         captureScreenAsync(false, bmp -> {
+                         hideMarkersForCapture(leader);
+                         Choreographer.getInstance().postFrameCallback(f1 -> Choreographer.getInstance().postFrameCallback(f2 -> captureScreenAsync(false, bmp -> {
+                             applyVisibilityRules();
                              if (!isRunning || isPaused) {
                                  if (bmp != null && !bmp.isRecycled()) bmp.recycle();
                                  return;
@@ -3812,7 +3853,7 @@ jobs:
                                      }
                                  }
                              }
-                         });
+                         })));
                      };
                      checkLoopRef[0].run();
                  }
