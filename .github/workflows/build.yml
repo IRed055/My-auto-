@@ -3040,8 +3040,7 @@ jobs:
                          saveAllCond.run();
                          tvTestResultBox.setText("⏳ جاري التقاط الشاشة وفحص الألوان بدقة...");
                          tvTestResultBox.setTextColor(Color.parseColor("#FBBF24"));
-                         if (activePopupDialog != null) activePopupDialog.setVisibility(View.GONE);
-                         if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
+                         dismissPopupDirect();
                          setAllMarkersVisibleTemp(false);
                          handler.postDelayed(() -> captureScreenAsync(true, bmp -> {
                              if (activePopupDialog != null) activePopupDialog.setVisibility(View.VISIBLE);
@@ -3074,7 +3073,7 @@ jobs:
                              bmp.recycle();
                              tvTestResultBox.setText(msg.toString());
                              tvTestResultBox.setTextColor(overall ? Color.parseColor("#34D399") : Color.parseColor("#F87171"));
-                         }), 300);
+                         }), 500);
                      });
                      box.addView(bTestNow);
                      Button bDone = createPopupButton("💾 حفظ والعودة لإعدادات الخطوة", "#16A34A");
@@ -3225,8 +3224,8 @@ jobs:
                  }
                  private void launchVisionPicker(final StepItem item, final boolean isB, final int pickerAction) {
                     activePopupAutoSave = null;
-                    dismissPopupDirect();
-                    setAllMarkersVisibleTemp(false);
+                    dismissPopupDirect(); // إزالة نهائية للقائمة من النظام
+                    setAllMarkersVisibleTemp(false); // إخفاء فوري للدوائر بـ Alpha
                     ScreenCaptureActivity.pendingActionAfterGrant = () -> launchVisionPicker(item, isB, pickerAction);
                     handler.postDelayed(() -> captureScreenAsync(true, frozen -> {
                         if (frozen == null) {
@@ -3314,24 +3313,30 @@ jobs:
                                 }
                             });
                         }
-                    }), 300);
+                    }), 500);
                  }
                  private void setAllMarkersVisibleTemp(boolean show) {
+                    SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                    float targetAlpha = prefs.getInt("def_alpha", 88) / 100f;
                     if (!show) {
                         for (StepItem s : steps) {
-                            if (s.primaryView != null) s.primaryView.setVisibility(View.GONE);
-                            if (s.secondaryView != null) s.secondaryView.setVisibility(View.GONE);
+                            if (s.primaryView != null) { s.primaryView.setAlpha(0f); s.primaryView.setVisibility(View.VISIBLE); }
+                            if (s.secondaryView != null) { s.secondaryView.setAlpha(0f); s.secondaryView.setVisibility(View.VISIBLE); }
                         }
-                        if (vectorOverlay != null) vectorOverlay.setVisibility(View.GONE);
-                        if (hudView != null) hudView.setVisibility(View.GONE);
-                        if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
+                        if (vectorOverlay != null) vectorOverlay.setAlpha(0f);
+                        if (hudView != null) hudView.setAlpha(0f);
+                        if (rootBarContainer != null) rootBarContainer.setAlpha(0f);
                     } else {
-                        if (vectorOverlay != null) vectorOverlay.setVisibility(View.VISIBLE);
-                        SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
+                        if (vectorOverlay != null) vectorOverlay.setAlpha(1f);
                         if (hudView != null) {
+                            hudView.setAlpha(1f);
                             hudView.setVisibility(prefs.getBoolean("show_hud", false) ? View.VISIBLE : View.GONE);
                         }
-                        if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
+                        if (rootBarContainer != null) rootBarContainer.setAlpha(targetAlpha);
+                        for (StepItem s : steps) {
+                            if (s.primaryView != null) s.primaryView.setAlpha(targetAlpha);
+                            if (s.secondaryView != null) s.secondaryView.setAlpha(targetAlpha);
+                        }
                         applyVisibilityRules();
                     }
                  }
