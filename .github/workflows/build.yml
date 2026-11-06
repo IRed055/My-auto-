@@ -3035,45 +3035,42 @@ jobs:
                      rlp.setMargins(0, 10, 0, 10);
                      tvTestResultBox.setLayoutParams(rlp);
                      box.addView(tvTestResultBox);
-                     Button bTestNow = createPopupButton("🔍 اختبار الشرط ومعاينة نسبة الشريط/المنطقة الآن", "#0284C7");
+                     Button bTestNow = createPopupButton("🔍 اختبار الشرط ومعاينة النتيجة الآن", "#0284C7");
                      bTestNow.setOnClickListener(v -> {
-                         saveAllCond.run();
-                         tvTestResultBox.setText("⏳ جاري التقاط الشاشة وفحص الألوان بدقة...");
-                         tvTestResultBox.setTextColor(Color.parseColor("#FBBF24"));
-                         dismissPopupDirect();
-                         setAllMarkersVisibleTemp(false);
-                         handler.postDelayed(() -> captureScreenAsync(true, bmp -> {
-                             if (activePopupDialog != null) activePopupDialog.setVisibility(View.VISIBLE);
-                             if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
-                             setAllMarkersVisibleTemp(true);
-                             if (bmp == null) {
-                                 tvTestResultBox.setText("❌ فشل التقاط الشاشة! تأكد من منح الصلاحية.");
-                                 tvTestResultBox.setTextColor(Color.parseColor("#EF4444"));
-                                 return;
-                             }
-                             boolean overall = VisionHelper.evaluateStep(item, bmp);
-                             StringBuilder msg = new StringBuilder();
-                             msg.append(overall ? "✅ النتيجة: الشرط متحقق تماماً!" : "❌ النتيجة: الشرط غير متحقق حالياً");
-                             if (item.condAMode == 2) {
-                                 int fillA = VisionHelper.estimateBarFillPct(bmp, item.condAX1, item.condAY1, item.condAX2, item.condAY2, item.condAColor, item.condATol);
-                                 msg.append("\n📊 امتلاء شريط A: ").append(fillA).append("% (المطلوب >= ").append(item.condABarPct).append("%)");
-                             } else if (item.condAMode == 1) {
-                                 int areaA = VisionHelper.estimateAreaMatchPct(bmp, item.condAX1, item.condAY1, item.condABoxW, item.condABoxH, item.condAColor, item.condAGrid, item.condATol);
-                                 msg.append("\n📊 تطابق مربع A: ").append(areaA).append("% (المطلوب >= ").append(item.condAAreaPct).append("%)");
-                             }
-                             if (item.condLogic > 0) {
-                                 if (item.condBMode == 2) {
-                                     int fillB = VisionHelper.estimateBarFillPct(bmp, item.condBX1, item.condBY1, item.condBX2, item.condBY2, item.condBColor, item.condBTol);
-                                     msg.append("\n📊 امتلاء شريط B: ").append(fillB).append("% (المطلوب >= ").append(item.condBBarPct).append("%)");
-                                 } else if (item.condBMode == 1) {
-                                     int areaB = VisionHelper.estimateAreaMatchPct(bmp, item.condBX1, item.condBY1, item.condBBoxW, item.condBBoxH, item.condBColor, item.condBGrid, item.condBTol);
-                                     msg.append("\n📊 تطابق مربع B: ").append(areaB).append("% (المطلوب >= ").append(item.condBAreaPct).append("%)");
-                                 }
-                             }
-                             bmp.recycle();
-                             tvTestResultBox.setText(msg.toString());
-                             tvTestResultBox.setTextColor(overall ? Color.parseColor("#34D399") : Color.parseColor("#F87171"));
-                         }), 500);
+                        saveAllCond.run();
+                        dismissPopupDirect(); // تدمير القائمة لضمان صورة نظيفة 100%
+                        setAllMarkersVisibleTemp(false); // إخفاء الدوائر
+                        showSingleToast("⏳ جاري التقاط الشاشة وفحص البيانات...");
+                        
+                        handler.postDelayed(() -> captureScreenAsync(true, bmp -> {
+                            setAllMarkersVisibleTemp(true); // إرجاع الدوائر
+                            if (bmp == null) {
+                                showSingleToast("❌ فشل التقاط الشاشة! تأكد من منح الصلاحية.");
+                                return;
+                            }
+                            boolean overall = VisionHelper.evaluateStep(item, bmp);
+                            StringBuilder msg = new StringBuilder();
+                            msg.append(overall ? "✅ الشرط متحقق تماماً!" : "❌ الشرط غير متحقق حالياً");
+                            
+                            if (item.condAMode == 2) {
+                                int fillA = VisionHelper.estimateBarFillPct(bmp, item.condAX1, item.condAY1, item.condAX2, item.condAY2, item.condAColor, item.condATol);
+                                msg.append("\n📊 شريط A: ").append(fillA).append("%");
+                            } else if (item.condAMode == 1) {
+                                int areaA = VisionHelper.estimateAreaMatchPct(bmp, item.condAX1, item.condAY1, item.condABoxW, item.condABoxH, item.condAColor, item.condAGrid, item.condATol);
+                                msg.append("\n📊 مربع A: ").append(areaA).append("%");
+                            }
+                            if (item.condLogic > 0) {
+                                if (item.condBMode == 2) {
+                                    int fillB = VisionHelper.estimateBarFillPct(bmp, item.condBX1, item.condBY1, item.condBX2, item.condBY2, item.condBColor, item.condBTol);
+                                    msg.append("\n📊 شريط B: ").append(fillB).append("%");
+                                } else if (item.condBMode == 1) {
+                                    int areaB = VisionHelper.estimateAreaMatchPct(bmp, item.condBX1, item.condBY1, item.condBBoxW, item.condBBoxH, item.condBColor, item.condBGrid, item.condBTol);
+                                    msg.append("\n📊 مربع B: ").append(areaB).append("%");
+                                }
+                            }
+                            bmp.recycle();
+                            showSingleToast(msg.toString()); // عرض النتيجة في إشعار عائم
+                        }), 500);
                      });
                      box.addView(bTestNow);
                      Button bDone = createPopupButton("💾 حفظ والعودة لإعدادات الخطوة", "#16A34A");
