@@ -671,7 +671,7 @@ jobs:
                  private CheckBox cbHorizontal, cbShowHud, cbPauseOnCall, cbStopOnHome;
                  private SeekBar sbSize, sbStroke, sbBarBtn, sbBubble, sbAlpha, sbIdleAlpha;
                  private int selectedThemeIndex = 0;
-                 private int selectedNotifMode = 1;
+                 private int selectedNotifMode = 0;
                  private int valSize = 95, valStroke = 5, valBarBtn = 82, valBubble = 95, valAlpha = 88, valIdleAlpha = 55;
                  private Button btnNotifMode;
                  private LinearLayout previewCloudBar;
@@ -697,7 +697,7 @@ jobs:
                      super.onCreate(savedInstanceState);
                      prefs = getSharedPreferences("ClickerPrefs", Context.MODE_PRIVATE);
                      selectedThemeIndex = prefs.getInt("theme_idx", 0);
-                     selectedNotifMode = prefs.getInt("notif_mode", 1);
+                     selectedNotifMode = prefs.getInt("notif_mode", 0);
                      valSize = prefs.getInt("def_size", 95);
                      valStroke = prefs.getInt("def_stroke_width", 5);
                      valBarBtn = prefs.getInt("bar_btn_size", 82);
@@ -794,7 +794,7 @@ jobs:
                  }
                  private void resetToDefaultSettings() {
                      selectedThemeIndex = 0;
-                     selectedNotifMode = 1;
+                     selectedNotifMode = 0;
                      valSize = 95;
                      valStroke = 5;
                      valBarBtn = 82;
@@ -2913,6 +2913,13 @@ jobs:
                      cbEnable.setText("تفعيل الشرط البصري لهذه الخطوة");
                      cbEnable.setTextColor(Color.WHITE);
                      cbEnable.setChecked(item.useCondition || item.type == StepItem.TYPE_VISION_CHECK);
+                    
+                     // --- تلوين المربع (أزرق عند التفعيل، أحمر عند الإطفاء) ---
+                     int[][] states = new int[][] { new int[] { android.R.attr.state_checked }, new int[] { -android.R.attr.state_checked } };
+                     int[] colors = new int[] { Color.parseColor("#38BDF8"), Color.parseColor("#EF4444") };
+                     cbEnable.setButtonTintList(new android.content.res.ColorStateList(states, colors));
+                     // --------------------------------
+                    
                      if (item.type == StepItem.TYPE_VISION_CHECK) cbEnable.setEnabled(false);
                      box.addView(cbEnable);
                      if (item.type != StepItem.TYPE_VISION_CHECK) {
@@ -4269,7 +4276,7 @@ jobs:
                      }
                      if (event.getEventType() == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED && !isPaused) {
                          if (pkg.contains("smartclicker") || pkg.contains("systemui")) return;
-                         int notifMode = prefs.getInt("notif_mode", 1);
+                         int notifMode = prefs.getInt("notif_mode", 0);
                          long now = System.currentTimeMillis();
                          if (now - lastNotifActionTime < 2500) return;
                          lastNotifActionTime = now;
