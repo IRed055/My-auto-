@@ -934,7 +934,7 @@ jobs:
                      cbShowHud = new CheckBox(this);
                      cbShowHud.setText("إظهار نافذة العداد العائمة المصغرة (شفافة للمس)");
                      cbShowHud.setTextColor(Color.WHITE);
-                     cbShowHud.setChecked(prefs.getBoolean("show_hud", true));
+                     cbShowHud.setChecked(prefs.getBoolean("show_hud", false));
                      box.addView(cbShowHud);
                      Button btnResetInside = createButton("🔄 إعادة تنسيق الشكل والأحجام للوضع الافتراضي", "#B45309");
                      btnResetInside.setOnClickListener(v -> confirmResetDefaults());
@@ -2315,28 +2315,47 @@ jobs:
                      if (vectorOverlay != null) vectorOverlay.invalidate();
                  }
                  private void setupHudOverlay() {
-                     if (hudView != null) return;
-                     hudView = new TextView(this);
-                     hudView.setText("Red Clicker | جاهز (0 خطوة)");
-                     hudView.setTextColor(Color.parseColor("#FEF08A"));
-                     hudView.setTextSize(11);
-                     hudView.setPadding(18, 8, 18, 8);
-                     GradientDrawable hBg = new GradientDrawable();
-                     hBg.setColor(Color.parseColor("#88000000"));
-                     hBg.setCornerRadius(16f);
-                     hudView.setBackgroundDrawable(hBg);
-                     hudParams = new WindowManager.LayoutParams(
-                         WindowManager.LayoutParams.WRAP_CONTENT,
-                         WindowManager.LayoutParams.WRAP_CONTENT,
-                         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                             | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                             | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                         PixelFormat.TRANSLUCENT);
-                     hudParams.gravity = Gravity.TOP | Gravity.END;
-                     hudParams.x = 25;
-                     hudParams.y = 30;
-                     wm.addView(hudView, hudParams);
+                    if (hudView != null) return;
+                    hudView = new TextView(this);
+                    hudView.setText("Red Clicker | جاهز (0 خطوة)");
+                    hudView.setTextColor(Color.parseColor("#FEF08A"));
+                    hudView.setTextSize(11);
+                    hudView.setPadding(18, 8, 18, 8);
+                    GradientDrawable hBg = new GradientDrawable();
+                    hBg.setColor(Color.parseColor("#88000000"));
+                    hBg.setCornerRadius(16f);
+                    hudView.setBackgroundDrawable(hBg);
+                    hudParams = new WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        PixelFormat.TRANSLUCENT);
+                    hudParams.gravity = Gravity.TOP | Gravity.START;
+                    hudParams.x = 25;
+                    hudParams.y = 30;
+                    
+                    hudView.setOnTouchListener(new View.OnTouchListener() {
+                        int initX, initY;
+                        float touchX, touchY;
+                        @Override
+                        public boolean onTouch(View v, MotionEvent e) {
+                            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                initX = hudParams.x; initY = hudParams.y;
+                                touchX = e.getRawX(); touchY = e.getRawY();
+                                return true;
+                            } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                hudParams.x = initX + (int) (e.getRawX() - touchX);
+                                hudParams.y = initY + (int) (e.getRawY() - touchY);
+                                wm.updateViewLayout(hudView, hudParams);
+                                return true;
+                            }
+                            return false;
+                        }
+                    });
+                    
+                    wm.addView(hudView, hudParams);
                  }
                  private void updateHudText(String text) {
                      if (hudView != null) hudView.setText(text);
@@ -2376,7 +2395,7 @@ jobs:
                      }
                      rootBarContainer.setAlpha(alpha);
                      if (hudView != null) {
-                         hudView.setVisibility(prefs.getBoolean("show_hud", true) ? View.VISIBLE : View.GONE);
+                         hudView.setVisibility(prefs.getBoolean("show_hud", false) ? View.VISIBLE : View.GONE);
                      }
                      int size = prefs.getInt("def_size", 95);
                      for (StepItem s : steps) {
