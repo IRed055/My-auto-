@@ -3696,25 +3696,6 @@ jobs:
                      applyVisibilityRules();
                  }
              }
-             private void setAllMarkersVisibleTemp(boolean show) {
-                 if (!show) {
-                     for (StepItem s : steps) {
-                         if (s.primaryView != null) s.primaryView.setVisibility(View.GONE);
-                         if (s.secondaryView != null) s.secondaryView.setVisibility(View.GONE);
-                     }
-                     if (vectorOverlay != null) vectorOverlay.setVisibility(View.GONE);
-                     if (hudView != null) hudView.setVisibility(View.GONE);
-                     if (rootBarContainer != null) rootBarContainer.setVisibility(View.GONE);
-                 } else {
-                     if (vectorOverlay != null) vectorOverlay.setVisibility(View.VISIBLE);
-                     SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
-                     if (hudView != null) {
-                         hudView.setVisibility(prefs.getBoolean("show_hud", true) ? View.VISIBLE : View.GONE);
-                     }
-                     if (rootBarContainer != null) rootBarContainer.setVisibility(View.VISIBLE);
-                     applyVisibilityRules();
-                 }
-             }
              private void showQuickNextSettingsDialog() {
                  final SharedPreferences prefs = getSharedPreferences("ClickerPrefs", MODE_PRIVATE);
                  LinearLayout box = createPopupContainer("⚙️ إعداد سريع شامل للخطوات القادمة");
