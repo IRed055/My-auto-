@@ -2168,11 +2168,11 @@ jobs:
               import android.os.Looper;
               import android.text.InputType;
               import android.util.DisplayMetrics;
+              import android.view.Choreographer;
               import android.view.Display;
               import android.view.Gravity;
               import android.view.KeyEvent;
               import android.view.MotionEvent;
-              import android.view.Choreographer;
               import android.view.View;
               import android.view.WindowManager;
               import android.view.accessibility.AccessibilityEvent;
