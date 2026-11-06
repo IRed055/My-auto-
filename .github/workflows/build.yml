@@ -1,4 +1,4 @@
-name: Build Red Auto Clicker v6.0
+name: Build Red Auto Clicker v7.0
 
 on:
  push:
@@ -21,7 +21,7 @@ jobs:
          distribution: 'temurin'
          java-version: '17'
 
-     - name: Generate Red Auto Clicker v6.0 Files
+     - name: Generate Red Auto Clicker v7.0 Files
        run: |
          rm -rf app build.gradle settings.gradle
          python3 - << 'PYEOF'
@@ -69,8 +69,8 @@ jobs:
                      applicationId "com.smartclicker.app"
                      minSdk 24
                      targetSdk 28
-                     versionCode 6
-                     versionName "6.0"
+                     versionCode 7
+                     versionName "7.0"
                  }
                  compileOptions {
                      sourceCompatibility JavaVersion.VERSION_1_8
@@ -84,7 +84,7 @@ jobs:
              <?xml version="1.0" encoding="utf-8"?>
              <resources>
                  <string name="app_name">Red Auto Clicker</string>
-                 <string name="acc_desc">Red Auto Clicker v6.0 - نظام الأوامر الذكي والفحص البصري المتكامل</string>
+                 <string name="acc_desc">Red Auto Clicker v7.0 - نظام الأوامر الذكي والفحص البصري المتكامل</string>
              </resources>
          """)
          write_file("app/src/main/res/xml/accessibility_config.xml", r"""
@@ -718,7 +718,7 @@ jobs:
                      hBg.setCornerRadius(24f);
                      header.setBackgroundDrawable(hBg);
                      TextView title = new TextView(this);
-                     title.setText("RED AUTO CLICKER v6.0");
+                     title.setText("RED AUTO CLICKER v7.0");
                      title.setTextSize(21);
                      title.setTextColor(Color.WHITE);
                      title.setGravity(Gravity.CENTER);
@@ -1055,7 +1055,7 @@ jobs:
                          "• زر الإعداد (⚙️) تعليق مطول: يفتح طبقات الأوامر والتعديل الجماعي وإدراج الخطوات.\n\n" +
                          "• إيقاف الخدمة من الإشعارات: يمكنك إغلاق التطبيق ومشاركة الشاشة بالكامل من زر (إيقاف التشغيل) في شريط الإشعارات.";
                      new AlertDialog.Builder(MainActivity.this)
-                         .setTitle("دليل أوامر Red Auto Clicker v6.0")
+                         .setTitle("دليل أوامر Red Auto Clicker v7.0")
                          .setMessage(guide)
                          .setPositiveButton("إغلاق", null)
                          .show();
@@ -2033,7 +2033,7 @@ jobs:
                              ? "مشاركة الشاشة نشطة | اضغط الزر أدناه لإيقاف التشغيل الكامل"
                              : "السحابة نشطة في الخلفية | اضغط لإيقاف التشغيل الكامل";
                          nb.setSmallIcon(android.R.drawable.ic_media_play)
-                           .setContentTitle("Red Auto Clicker v6.0 يعمل")
+                           .setContentTitle("Red Auto Clicker v7.0 يعمل")
                            .setContentText(statusTxt)
                            .setOngoing(true)
                            .addAction(android.R.drawable.ic_delete, "⏹ إيقاف التشغيل وإغلاق الخدمة", piStop);
@@ -2081,7 +2081,7 @@ jobs:
                          captureW = dm.widthPixels;
                          captureH = dm.heightPixels;
                          persistentIR = ImageReader.newInstance(captureW, captureH, PixelFormat.RGBA_8888, 2);
-                         persistentVD = mediaProjection.createVirtualDisplay("RedLiveReaderV6",
+                         persistentVD = mediaProjection.createVirtualDisplay("RedLiveReaderV7",
                              captureW, captureH, dm.densityDpi,
                              DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                              persistentIR.getSurface(), null, null);
@@ -4475,12 +4475,12 @@ jobs:
      - name: Upload APK Artifact
        uses: actions/upload-artifact@v4
        with:
-         name: RedAutoClicker-v6-APK
+         name: RedAutoClicker-v7-APK
          path: app/build/outputs/apk/debug/app-debug.apk
 
      - name: Publish APK to Releases
        uses: softprops/action-gh-release@v2
        with:
-         tag_name: v6.0.${{ github.run_number }}
-         name: "Red Auto Clicker v6.0 #${{ github.run_number }}"
+         tag_name: v7.0.${{ github.run_number }}
+         name: "Red Auto Clicker v7.0 #${{ github.run_number }}"
          files: app/build/outputs/apk/debug/app-debug.apk
