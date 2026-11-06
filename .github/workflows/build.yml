@@ -1931,6 +1931,9 @@ jobs:
                  private boolean lockPreviousSteps = false;
                  private boolean isBarPositionLocked = false;
                  private boolean isGameTouchFrozen = false;
+                 private LinearLayout quickActionBarLayout;
+                 private WindowManager.LayoutParams quickBarParams;
+                 private boolean isQuickBarHidden = false;
                  private int currentGroupIndex = 0;
                  private int currentSubRepeat = 0;
                  private int currentLoopCycle = 1;
@@ -2600,7 +2603,103 @@ jobs:
                      Button bVision = createPopupButton("👁️ إضافة أمر فحص بصري مستقل (بدون لمس)", "#EC4899");
                      bVision.setOnClickListener(v -> { saveAndDismissPopup(); addStep(StepItem.TYPE_VISION_CHECK); });
                      box.addView(bVision);
+                     
+                     Button bQuickBar = createPopupButton("📌 تشغيل شريط الإضافة السريع (عائم)", "#EAB308");
+                     bQuickBar.setOnClickListener(v -> { saveAndDismissPopup(); showQuickActionBar(); });
+                     box.addView(bQuickBar);
+                    
                      showPopupView(box, null);
+                 }
+                 private void showQuickActionBar() {
+                    if (quickActionBarLayout != null) return;
+                    
+                    quickActionBarLayout = new LinearLayout(this);
+                    quickActionBarLayout.setOrientation(LinearLayout.HORIZONTAL);
+                    quickActionBarLayout.setGravity(Gravity.CENTER_VERTICAL);
+                    quickActionBarLayout.setPadding(12, 8, 12, 8);
+                    
+                    GradientDrawable bg = new GradientDrawable();
+                    bg.setColor(Color.parseColor("#E618181B"));
+                    bg.setCornerRadius(24f);
+                    bg.setStroke(2, Color.parseColor("#52525B"));
+                    quickActionBarLayout.setBackgroundDrawable(bg);
+
+                    int size = 70;
+                    String[] syms = {"🎯", "⇄", "🔍-", "🔍+", "↺", "👁️"};
+                    String[] cols = {"#EF4444", "#10B981", "#06B6D4", "#8B5CF6", "#F59E0B", "#EC4899"};
+                    int[] types = {StepItem.TYPE_TAP, StepItem.TYPE_SWIPE, StepItem.TYPE_ZOOM_OUT, StepItem.TYPE_ZOOM_IN, StepItem.TYPE_JUMP, StepItem.TYPE_VISION_CHECK};
+
+                    for (int i = 0; i < syms.length; i++) {
+                        final int type = types[i];
+                        TextView btn = new TextView(this);
+                        btn.setText(syms[i]);
+                        btn.setTextSize(18);
+                        btn.setTextColor(Color.WHITE);
+                        btn.setGravity(Gravity.CENTER);
+                        GradientDrawable shape = new GradientDrawable();
+                        shape.setShape(GradientDrawable.OVAL);
+                        shape.setColor(Color.parseColor(cols[i]));
+                        btn.setBackgroundDrawable(shape);
+                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+                        lp.setMargins(5, 0, 5, 0);
+                        btn.setLayoutParams(lp);
+                        btn.setOnClickListener(v -> addStep(type));
+                        quickActionBarLayout.addView(btn);
+                    }
+
+                    TextView handle = new TextView(this);
+                    handle.setText("⠿");
+                    handle.setTextSize(24);
+                    handle.setTextColor(Color.WHITE);
+                    handle.setGravity(Gravity.CENTER);
+                    LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(70, 70);
+                    hLp.setMargins(15, 0, 5, 0);
+                    handle.setLayoutParams(hLp);
+
+                    handle.setOnTouchListener(new View.OnTouchListener() {
+                        int initX, initY;
+                        float touchX, touchY;
+                        boolean isDragging = false;
+                        long downTime;
+                        @Override
+                        public boolean onTouch(View v, MotionEvent e) {
+                            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                                initX = quickBarParams.x; initY = quickBarParams.y;
+                                touchX = e.getRawX(); touchY = e.getRawY();
+                                isDragging = false; downTime = System.currentTimeMillis();
+                                return true;
+                            } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                if (Math.abs(e.getRawX() - touchX) > 15 || Math.abs(e.getRawY() - touchY) > 15) {
+                                    isDragging = true;
+                                    quickBarParams.x = initX + (int) (e.getRawX() - touchX);
+                                    quickBarParams.y = initY + (int) (e.getRawY() - touchY);
+                                    wm.updateViewLayout(quickActionBarLayout, quickBarParams);
+                                }
+                                return true;
+                            } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                if (!isDragging && System.currentTimeMillis() - downTime < 300) {
+                                    wm.removeView(quickActionBarLayout);
+                                    quickActionBarLayout = null;
+                                    showSingleToast("تم إغلاق شريط الإضافة السريع");
+                                }
+                                return true;
+                            }
+                            return false;
+                        }
+                    });
+                    quickActionBarLayout.addView(handle);
+
+                    quickBarParams = new WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        PixelFormat.TRANSLUCENT);
+                    quickBarParams.gravity = Gravity.TOP | Gravity.START;
+                    quickBarParams.x = 40;
+                    quickBarParams.y = 300;
+                    
+                    wm.addView(quickActionBarLayout, quickBarParams);
                  }
                  private void showVisibilitySubmenu() {
                      LinearLayout box = createPopupContainer("قائمة الإخفاء والرؤية (👁)");
@@ -2787,20 +2886,41 @@ jobs:
                                  initX = lp.x; initY = lp.y;
                                  touchX = e.getRawX(); touchY = e.getRawY();
                                  return true;
-                             } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                                 lp.x = initX + (int) (e.getRawX() - touchX);
-                                 lp.y = initY + (int) (e.getRawY() - touchY);
-                                 if (isSec) { item.x2 = lp.x; item.y2 = lp.y; }
-                                 else { item.x = lp.x; item.y = lp.y; }
-                                 wm.updateViewLayout(tv, lp);
-                                 refreshVectorOverlay();
-                                 return true;
-                             } else if (e.getAction() == MotionEvent.ACTION_UP) {
-                                 triggerEmergencyAutoSave();
-                                 if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15) {
-                                     showEditStepDialog(item);
-                                 }
-                                 return true;
+                            } else if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                                lp.x = initX + (int) (e.getRawX() - touchX);
+                                lp.y = initY + (int) (e.getRawY() - touchY);
+                                if (isSec) { item.x2 = lp.x; item.y2 = lp.y; }
+                                else { item.x = lp.x; item.y = lp.y; }
+                                wm.updateViewLayout(tv, lp);
+                                refreshVectorOverlay();
+                                
+                                // --- ميزة الاختفاء الذكي عند السحب ---
+                                if (quickActionBarLayout != null && quickActionBarLayout.getVisibility() == View.VISIBLE) {
+                                    int[] qLoc = new int[2]; quickActionBarLayout.getLocationOnScreen(qLoc);
+                                    int qCenterX = qLoc[0] + (quickActionBarLayout.getWidth() / 2);
+                                    int qCenterY = qLoc[1] + (quickActionBarLayout.getHeight() / 2);
+                                    float dist = (float) Math.hypot(e.getRawX() - qCenterX, e.getRawY() - qCenterY);
+                                    
+                                    if (dist < 250) {
+                                        quickActionBarLayout.setAlpha(0f);
+                                        isQuickBarHidden = true;
+                                    } else {
+                                        quickActionBarLayout.setAlpha(1f);
+                                        isQuickBarHidden = false;
+                                    }
+                                }
+                                // ------------------------------------
+                                return true;
+                            } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                                if (quickActionBarLayout != null && isQuickBarHidden) {
+                                    quickActionBarLayout.setAlpha(1f);
+                                    isQuickBarHidden = false;
+                                }
+                                triggerEmergencyAutoSave();
+                                if (Math.abs(e.getRawX() - touchX) < 15 && Math.abs(e.getRawY() - touchY) < 15) {
+                                    showEditStepDialog(item);
+                                }
+                                return true;
                              }
                              return false;
                          }
